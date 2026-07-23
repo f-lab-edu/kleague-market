@@ -1,0 +1,5 @@
+rootProject.name = 'kleague-market'
+
+include 'app'
+include 'domain'
+include 'kleague-client'
