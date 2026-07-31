@@ -83,6 +83,7 @@ K리그 선수를 자산으로 사고파는 **가상 포인트 기반 판타지 
 - 경기결과·성적 수집(배당용): `fixtures`(종료 감지) + `events` + `lineups` → 2024 시즌 배치.
 - **데이터 소스 = api-sports 단일**(합법 사용). K리그 공식 포털은 **ToS상 저장·활용 금지**(보도 목적 외 사전허가 필요)라 **배제**.
 - **어댑터(Anti-Corruption Layer)**: `kleague-client` 모듈이 api-sports DTO → 도메인 모델(`SeasonStats`/`MatchPerformance` 포트) 변환 전담. 도메인·배당엔진·DB는 api-sports를 **모름** → 제공자 교체 시 이 모듈만 수정. (= 모듈 ADR "kleague-client 분리 근거"의 구체화)
+- **식별자 격리**: 선수·경기는 **내부 id(PK) 발급**, api-sports id는 매핑 컬럼(`api_sports_id`)으로만 보관·**미노출**. 제공자 교체 시 공개 API id 불변(ACL의 완성).
 
 ### D7. 수수료 / 스팸 방어 / 자전거래
 - **거래 수수료**: **소액 명목 수수료(예 0.2%, 튜닝 상수)** — 체결(fill) 시 부과 → **포인트 싱크**로 배당 인플레 완화. 부분체결 반올림/버림은 D3 정수 minor-unit 정책 따름.
