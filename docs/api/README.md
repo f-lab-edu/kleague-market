@@ -1,6 +1,6 @@
 # kleague-market API 요약 (MVP)
 
-기계용 계약은 [[openapi]](`openapi.yaml`). 이건 사람이 한눈에 보는 요약. 설계 근거는 [[2026-07-29-kleague-market-design]].
+기계용 계약은 [[openapi.yaml]]. 이건 사람이 한눈에 보는 요약. 설계 근거는 [[2026-07-29-kleague-market-design]].
 
 ## 공통 규약
 
