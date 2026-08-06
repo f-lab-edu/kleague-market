@@ -5,10 +5,12 @@
 ## 공통 규약
 
 - **Base**: `/api`
-- **가격 단위**: 정수 **minor-unit**(포인트 ×100). 모든 price/amount/balance 동일
+- **가격 단위**: 정수 **minor-unit**(포인트 ×100). **money 필드는 long(int64)**(오버플로 방지), **quantity(주식 수)는 int**(고정 공급이라 작음)
 - **인증**: 헤더 `Authorization: Bearer <token>`(서버측 opaque 토큰). 공개 엔드포인트는 토큰 불필요
 - **식별자**: 공개 id는 전부 **내부 id**. api-sports id는 내부 매핑 전용(미노출) → 제공자 교체해도 공개 id 불변
-- **페이징**: `page`(0-base)·`size`(≤100), 응답에 `page/size/totalElements/totalPages`
+- **시간**: 모든 시각 **ISO-8601 UTC**(`2026-08-05T12:34:56Z`) — 저장·직렬화 UTC 통일
+- **페이징**: `page`(0-base)·`size`(≤100), 응답에 `page/size/totalElements/totalPages`. Spring Data 스타일 필드지만 **자체 DTO로 직렬화**(Spring `Page` 직접 직렬화는 포맷 불안정이라 지양)
+- **정렬**: `sort=field,(asc|desc)`(다중 가능). 엔드포인트별 **허용 필드 화이트리스트**만(임의 필드 정렬 금지 — 보안·성능)
 - **주문 가격 의미**: 주문 제출은 **동기** — 응답은 "체결됨"이 아니라 "접수됨 + 즉시 체결분". 잔량은 `OPEN`으로 호가창에 남음
 
 ## 엔드포인트
@@ -20,7 +22,7 @@
 | POST | `/auth/logout` | ✔ | 토큰 무효화 |
 | GET | `/me` | ✔ | 내 정보 + 잔고 |
 | GET | `/players` | – | 마켓 시세 목록 (`teamId,position,sort,page,size`) |
-| GET | `/players/{id}` | – | 시세 상세 (lastPrice·bestBid·bestAsk·tradable) |
+| GET | `/players/{id}` | – | 시세 상세 (lastPrice·bestBid·bestAsk·tradable·tradableReason) |
 | POST | `/orders` | ✔ | 지정가 주문(동기, +즉시 체결분) |
 | GET | `/orders` | ✔ | 내 주문 목록(`status` 필터) |
 | GET | `/orders/{id}` | ✔ | 주문 단건 상태 |
@@ -32,7 +34,7 @@
 
 ## 핵심 응답 형태
 
-- **주문**: `{orderId, status(OPEN|PARTIALLY_FILLED|FILLED|CANCELLED), quantity, filledQuantity, remainingQuantity, limitPrice, fills:[{price,quantity}]}`
+- **주문**: `{orderId, status(OPEN|PARTIALLY_FILLED|FILLED|CANCELLED), quantity, filledQuantity, remainingQuantity, limitPrice, fills:[{price,quantity}], avgFillPrice}`
 - **포트폴리오**: `{cash, holdings:[{playerId,name,quantity,avgCost,lastPrice,marketValue}], holdingsValue, totalValue}` — totalValue는 **지시적 평가**(실현가 아님)
 - **원장 엔트리(통합)**: 공통 봉투 `{id, timestamp, type, amount(현금 델타), balanceAfter}` + `detail`(oneOf)
   - `TRADE_BUY`/`TRADE_SELL` → `{playerId,name,quantity,price,fee}`

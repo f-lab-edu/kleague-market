@@ -3,9 +3,13 @@ info:
   title: kleague-market API
   version: 0.1.0-MVP
   description: >
-    K리그 선수 판타지 주식 거래소 MVP API. 가격 단위는 **정수 minor-unit**
-    (포인트 ×100). 인증은 헤더 Bearer(서버측 opaque 토큰). 설계 근거는
-    docs/superpowers/specs/2026-07-29-kleague-market-design.md 참조.
+    K리그 선수 판타지 주식 거래소 MVP API. 규약:
+    (1) money 필드는 정수 **minor-unit(포인트 ×100), long(int64)**; quantity(주식 수)는 int.
+    (2) 인증은 헤더 Bearer(서버측 opaque 토큰).
+    (3) 모든 시각은 ISO-8601 UTC(`...Z`).
+    (4) 페이징은 Spring Data 스타일 필드를 자체 DTO로 직렬화(Page 직접 직렬화 지양).
+    (5) 정렬 `sort=field,(asc|desc)`, 엔드포인트별 허용 필드 화이트리스트.
+    설계 근거는 docs/superpowers/specs/2026-07-29-kleague-market-design.md 참조.
 
 servers:
   - url: /api
@@ -320,6 +324,11 @@ components:
         currentPrice: { type: integer, format: int64, description: "최근 체결가(없으면 base value), minor-unit" }
         change: { type: integer, format: int64, description: "기준 대비 변동(minor-unit)" }
         tradable: { type: boolean }
+        tradableReason:
+          type: string
+          nullable: true
+          enum: [HALTED_DELISTING, DELISTED, SUSPENDED]
+          description: "tradable=false일 때 사유. true면 null"
     PlayerDetail:
       allOf:
         - $ref: '#/components/schemas/PlayerSummary'
@@ -366,6 +375,7 @@ components:
         fills:
           type: array
           items: { $ref: '#/components/schemas/Fill' }
+        avgFillPrice: { type: integer, format: int64, nullable: true, description: "체결분 가중 평균가(minor-unit). 미체결이면 null" }
         createdAt: { type: string, format: date-time }
     OrderPage:
       allOf:
