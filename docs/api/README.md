@@ -6,8 +6,8 @@
 
 - **Base**: `/api`
 - **가격 단위**: 정수 **minor-unit**(포인트 ×100). **money 필드는 long(int64)**(오버플로 방지), **quantity(주식 수)는 int**(고정 공급이라 작음)
-- **인증**: 헤더 `Authorization: Bearer <token>`(서버측 opaque 토큰). 공개 엔드포인트는 토큰 불필요
-- **식별자**: 공개 id는 전부 **내부 id**. api-sports id는 내부 매핑 전용(미노출) → 제공자 교체해도 공개 id 불변
+- **인증**: 헤더 `Authorization: Bearer <token>`(서버측 opaque 토큰). 공개 엔드포인트는 토큰 불필요. 토큰은 **만료**되며(`expiresIn` 초) 로그아웃 시 즉시 무효화
+- **식별자**: 공개 id는 전부 **내부 id**. api-sports id는 내부 매핑 전용(미노출) → 제공자 교체해도 공개 id 불변. **타입은 도메인 엔티티(선수·팀·경기) = `long(int64)`, 사용자·주문 = `uuid(string)`** — 숫자 id를 int32로 두지 않는다
 - **시간**: 모든 시각 **ISO-8601 UTC**(`2026-08-05T12:34:56Z`) — 저장·직렬화 UTC 통일
 - **페이징**: `page`(0-base)·`size`(≤100), 응답에 `page/size/totalElements/totalPages`. Spring Data 스타일 필드지만 **자체 DTO로 직렬화**(Spring `Page` 직접 직렬화는 포맷 불안정이라 지양)
 - **정렬**: `sort=field,(asc|desc)`(다중 가능). 엔드포인트별 **허용 필드 화이트리스트**만(임의 필드 정렬 금지 — 보안·성능)
@@ -56,6 +56,7 @@
 | `INSUFFICIENT_SHARES` | 409 | 주식 부족 |
 | `HOLDING_CAP_EXCEEDED` | 409 | 선수별 보유 상한 초과 |
 | `ORDER_NOT_CANCELLABLE` | 409 | 이미 체결/취소됨 |
-| `RATE_LIMITED` | 429 | 주문 요청 한도 초과 |
+| `MARKET_CLOSED` | 409 | 거래정지 선수에 주문 — `tradable=false`면 사유 무관(`HALTED_DELISTING`·`DELISTED`·`SUSPENDED` 모두). soft delete라 404 아님 |
+| `RATE_LIMITED` | 429 | 주문 생성·취소 요청 한도 초과 |
 
 > STP(자전거래 방지, Cancel Taker)는 **에러가 아니라** taker 잔량을 취소해 정상 응답 — 응답의 `status`/`remainingQuantity`로 드러남.

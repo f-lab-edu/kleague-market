@@ -92,9 +92,9 @@ paths:
       summary: 마켓 — 선수 시세 목록 (공개)
       security: []
       parameters:
-        - { name: teamId, in: query, schema: { type: integer } }
+        - { name: teamId, in: query, schema: { type: integer, format: int64 } }
         - { name: position, in: query, schema: { $ref: '#/components/schemas/Position' } }
-        - { name: sort, in: query, description: "예: currentPrice,desc", schema: { type: string } }
+        - { name: sort, in: query, description: "예: lastPrice,desc", schema: { type: string } }
         - { name: page, in: query, schema: { type: integer, default: 0 } }
         - { name: size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
       responses:
@@ -110,7 +110,7 @@ paths:
       summary: 선수 시세 상세 (공개)
       security: []
       parameters:
-        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
       responses:
         '200':
           description: 성공
@@ -195,6 +195,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429': { $ref: '#/components/responses/RateLimited' }
 
   /me/portfolio:
     get:
@@ -305,6 +306,7 @@ components:
       properties:
         token: { type: string }
         tokenType: { type: string, example: Bearer }
+        expiresIn: { type: integer, format: int64, description: "만료까지 남은 초. 로그아웃 시엔 즉시 무효화" }
     MeResponse:
       type: object
       properties:
@@ -319,16 +321,19 @@ components:
         id: { type: integer, format: int64, description: "내부 player id (api-sports id는 내부 매핑 컬럼, 미노출)" }
         name: { type: string }
         position: { $ref: '#/components/schemas/Position' }
-        teamId: { type: integer }
+        teamId: { type: integer, format: int64 }
         teamName: { type: string }
-        currentPrice: { type: integer, format: int64, description: "최근 체결가(없으면 base value), minor-unit" }
+        lastPrice: { type: integer, format: int64, description: "최근 체결가(없으면 base value), minor-unit" }
         change: { type: integer, format: int64, description: "기준 대비 변동(minor-unit)" }
         tradable: { type: boolean }
         tradableReason:
           type: string
           nullable: true
           enum: [HALTED_DELISTING, DELISTED, SUSPENDED]
-          description: "tradable=false일 때 사유. true면 null"
+          description: >
+            tradable=false일 때 사유. true면 null.
+            HALTED_DELISTING=상장폐지 예정(exit 창 종료), DELISTED=상장폐지 완료,
+            SUSPENDED=운영상 정지(데이터 이상·점검). 상태↔사유 매핑표는 설계 스펙 D9 참조
     PlayerDetail:
       allOf:
         - $ref: '#/components/schemas/PlayerSummary'
@@ -352,7 +357,7 @@ components:
       type: object
       required: [playerId, side, quantity, limitPrice]
       properties:
-        playerId: { type: integer }
+        playerId: { type: integer, format: int64 }
         side: { $ref: '#/components/schemas/Side' }
         quantity: { type: integer, minimum: 1, description: "정수 주" }
         limitPrice: { type: integer, format: int64, minimum: 1, description: "한도가(minor-unit). 매수=최대지불, 매도=최소수취" }
@@ -365,7 +370,7 @@ components:
       type: object
       properties:
         orderId: { type: string, format: uuid }
-        playerId: { type: integer }
+        playerId: { type: integer, format: int64 }
         side: { $ref: '#/components/schemas/Side' }
         status: { $ref: '#/components/schemas/OrderStatus' }
         quantity: { type: integer }
@@ -390,11 +395,11 @@ components:
     Holding:
       type: object
       properties:
-        playerId: { type: integer }
+        playerId: { type: integer, format: int64 }
         name: { type: string }
         quantity: { type: integer }
         avgCost: { type: integer, format: int64, description: "평균 매입가(minor-unit)" }
-        lastPrice: { type: integer, format: int64 }
+        lastPrice: { type: integer, format: int64, description: "최근 체결가(없으면 base value), minor-unit" }
         marketValue: { type: integer, format: int64, description: "quantity × lastPrice" }
     PortfolioResponse:
       type: object
@@ -426,7 +431,7 @@ components:
     TradeDetail:
       type: object
       properties:
-        playerId: { type: integer }
+        playerId: { type: integer, format: int64 }
         name: { type: string }
         quantity: { type: integer }
         price: { type: integer, format: int64 }
