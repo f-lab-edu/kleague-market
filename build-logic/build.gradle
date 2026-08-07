@@ -1,0 +1,4 @@
+plugins {
+    // 미리 컴파일된 스크립트 플러그인(precompiled script plugin)을 쓰기 위한 플러그인
+    id 'groovy-gradle-plugin'
+}
