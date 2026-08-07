@@ -1,11 +1,5 @@
 plugins {
-    id 'java'
-}
-
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
+    id 'kleague.java-conventions'
 }
 
 dependencies {

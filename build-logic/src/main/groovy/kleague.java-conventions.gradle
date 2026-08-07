@@ -1,0 +1,14 @@
+// 모든 JVM 모듈이 공유하는 규약. 모듈별 build.gradle에는 그 모듈 고유의 것만 남긴다
+plugins {
+    id 'java'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+}

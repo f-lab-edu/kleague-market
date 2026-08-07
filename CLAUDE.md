@@ -32,6 +32,9 @@ app(Spring Boot) → domain(순수 자바) ← kleague-client(ACL)
 
 Gradle 멀티모듈, **Java 21**. 빌드·테스트 명령은 실제로 돌릴 게 생기면 여기 추가한다.
 
+**공통 빌드 규약은 `build-logic/src/main/groovy/kleague.java-conventions.gradle`에 둔다** (ADR-0008).
+모듈 `build.gradle`엔 그 모듈 고유의 것만 — toolchain·repositories를 모듈에 다시 쓰지 않는다.
+
 ## 구현 시 자주 틀리는 규칙
 
 - 금액은 **정수 minor-unit `long`** (`double`/`float` 금지), 주식 수량은 `int`

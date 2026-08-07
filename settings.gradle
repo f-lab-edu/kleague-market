@@ -1,3 +1,14 @@
+// pluginManagement는 plugins 블록보다 먼저 와야 한다
+pluginManagement {
+    includeBuild 'build-logic'
+}
+
+plugins {
+    // JDK 21이 없는 머신에서도 빌드되도록 toolchain 자동 프로비저닝을 활성화한다
+    // 없으면 "Toolchain download repositories have not been configured"로 실패한다
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
 rootProject.name = 'kleague-market'
 
 include 'app'
