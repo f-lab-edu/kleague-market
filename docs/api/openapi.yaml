@@ -1,0 +1,468 @@
+openapi: 3.0.3
+info:
+  title: kleague-market API
+  version: 0.1.0-MVP
+  description: >
+    K리그 선수 판타지 주식 거래소 MVP API. 규약:
+    (1) money 필드는 정수 **minor-unit(포인트 ×100), long(int64)**; quantity(주식 수)는 int.
+    (2) 인증은 헤더 Bearer(서버측 opaque 토큰).
+    (3) 모든 시각은 ISO-8601 UTC(`...Z`).
+    (4) 페이징은 Spring Data 스타일 필드를 자체 DTO로 직렬화(Page 직접 직렬화 지양).
+    (5) 정렬 `sort=field,(asc|desc)`, 엔드포인트별 허용 필드 화이트리스트.
+    설계 근거는 docs/superpowers/specs/2026-07-29-kleague-market-design.md 참조.
+
+servers:
+  - url: /api
+
+tags:
+  - name: auth
+  - name: market
+  - name: orders
+  - name: account
+
+paths:
+  /auth/signup:
+    post:
+      tags: [auth]
+      summary: 회원가입
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignupRequest' }
+      responses:
+        '201':
+          description: 생성됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '409':
+          description: 아이디 중복 (code=USERNAME_TAKEN)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: 로그인 → Bearer 토큰 발급
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenResponse' }
+        '401':
+          description: 자격 증명 불일치 (code=INVALID_CREDENTIALS)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: 로그아웃 (서버측 토큰 무효화)
+      responses:
+        '204': { description: 무효화됨 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me:
+    get:
+      tags: [account]
+      summary: 내 정보 + 잔고
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MeResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /players:
+    get:
+      tags: [market]
+      summary: 마켓 — 선수 시세 목록 (공개)
+      security: []
+      parameters:
+        - { name: teamId, in: query, schema: { type: integer, format: int64 } }
+        - { name: position, in: query, schema: { $ref: '#/components/schemas/Position' } }
+        - { name: sort, in: query, description: "예: lastPrice,desc", schema: { type: string } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerPage' }
+
+  /players/{id}:
+    get:
+      tags: [market]
+      summary: 선수 시세 상세 (공개)
+      security: []
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /orders:
+    post:
+      tags: [orders]
+      summary: 지정가 주문 생성 (동기 — 즉시 매칭 시도 후 결과 반환)
+      description: >
+        응답은 "체결됨"이 아니라 "주문 접수됨 + 즉시 체결분". 반대편 호가가 없으면
+        잔량은 OPEN으로 호가창에 남는다. 자기 호가와 체결될 상황이면 STP(Cancel Taker)로
+        taker 잔량이 취소된다.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OrderRequest' }
+      responses:
+        '200':
+          description: 접수됨(+즉시 체결분)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: >
+            처리 불가 — code ∈ {INSUFFICIENT_BALANCE, INSUFFICIENT_SHARES,
+            HOLDING_CAP_EXCEEDED, MARKET_CLOSED}
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [orders]
+      summary: 내 주문 목록
+      parameters:
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/OrderStatus' } }
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /orders/{id}:
+    get:
+      tags: [orders]
+      summary: 주문 단건 상태 조회
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    delete:
+      tags: [orders]
+      summary: 주문 취소 (잔량 취소·예약 반환)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: 취소됨
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 이미 체결/취소되어 취소 불가 (code=ORDER_NOT_CANCELLABLE)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorResponse' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  /me/portfolio:
+    get:
+      tags: [account]
+      summary: 포트폴리오 — 현금 + 보유 + 평가액
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PortfolioResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /me/ledger:
+    get:
+      tags: [account]
+      summary: 통합 원장 — 체결·배당·입금 타임라인
+      description: >
+        시간순 단일 타임라인. type으로 필터(콤마 다중). 별도 trades 엔드포인트는 없음
+        (type=TRADE_BUY,TRADE_SELL로 조회).
+      parameters:
+        - name: type
+          in: query
+          description: "콤마 구분 다중 필터"
+          schema:
+            type: array
+            items: { $ref: '#/components/schemas/LedgerType' }
+          style: form
+          explode: false
+        - { name: page, in: query, schema: { type: integer, default: 0 } }
+        - { name: size, in: query, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        '200':
+          description: 성공
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LedgerPage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+
+  responses:
+    BadRequest:
+      description: 검증 실패 (code=VALIDATION_ERROR)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Unauthorized:
+      description: 미인증 (code=UNAUTHORIZED)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: 없음 (code=NOT_FOUND)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    RateLimited:
+      description: 요청 한도 초과 (code=RATE_LIMITED)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    # ---- 공통 ----
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, example: INSUFFICIENT_BALANCE }
+        message: { type: string }
+        timestamp: { type: string, format: date-time }
+        path: { type: string }
+
+    Position:
+      type: string
+      enum: [Goalkeeper, Defender, Midfielder, Attacker]
+    Side:
+      type: string
+      enum: [BUY, SELL]
+    OrderStatus:
+      type: string
+      enum: [OPEN, PARTIALLY_FILLED, FILLED, CANCELLED]
+    LedgerType:
+      type: string
+      enum: [TRADE_BUY, TRADE_SELL, DIVIDEND, DEPOSIT]
+
+    # ---- auth / account ----
+    SignupRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, minLength: 3, maxLength: 30 }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 8, format: password }
+    LoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string }
+        password: { type: string, format: password }
+    TokenResponse:
+      type: object
+      properties:
+        token: { type: string }
+        tokenType: { type: string, example: Bearer }
+        expiresIn: { type: integer, format: int64, description: "만료까지 남은 초. 로그아웃 시엔 즉시 무효화" }
+    MeResponse:
+      type: object
+      properties:
+        userId: { type: string, format: uuid }
+        username: { type: string }
+        balance: { type: integer, format: int64, description: "현금 잔고 (minor-unit)" }
+
+    # ---- market ----
+    PlayerSummary:
+      type: object
+      properties:
+        id: { type: integer, format: int64, description: "내부 player id (api-sports id는 내부 매핑 컬럼, 미노출)" }
+        name: { type: string }
+        position: { $ref: '#/components/schemas/Position' }
+        teamId: { type: integer, format: int64 }
+        teamName: { type: string }
+        lastPrice: { type: integer, format: int64, description: "최근 체결가(없으면 base value), minor-unit" }
+        change: { type: integer, format: int64, description: "기준 대비 변동(minor-unit)" }
+        tradable: { type: boolean }
+        tradableReason:
+          type: string
+          nullable: true
+          enum: [HALTED_DELISTING, DELISTED, SUSPENDED]
+          description: >
+            tradable=false일 때 사유. true면 null.
+            HALTED_DELISTING=상장폐지 예정(exit 창 종료), DELISTED=상장폐지 완료,
+            SUSPENDED=운영상 정지(데이터 이상·점검). 상태↔사유 매핑표는 설계 스펙 D9 참조
+    PlayerDetail:
+      allOf:
+        - $ref: '#/components/schemas/PlayerSummary'
+        - type: object
+          properties:
+            photo: { type: string, format: uri }
+            baseValue: { type: integer, format: int64 }
+            bestBid: { type: integer, format: int64, nullable: true }
+            bestAsk: { type: integer, format: int64, nullable: true }
+    PlayerPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/PlayerSummary' }
+
+    # ---- orders ----
+    OrderRequest:
+      type: object
+      required: [playerId, side, quantity, limitPrice]
+      properties:
+        playerId: { type: integer, format: int64 }
+        side: { $ref: '#/components/schemas/Side' }
+        quantity: { type: integer, minimum: 1, description: "정수 주" }
+        limitPrice: { type: integer, format: int64, minimum: 1, description: "한도가(minor-unit). 매수=최대지불, 매도=최소수취" }
+    Fill:
+      type: object
+      properties:
+        price: { type: integer, format: int64 }
+        quantity: { type: integer }
+    OrderResponse:
+      type: object
+      properties:
+        orderId: { type: string, format: uuid }
+        playerId: { type: integer, format: int64 }
+        side: { $ref: '#/components/schemas/Side' }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        quantity: { type: integer }
+        filledQuantity: { type: integer }
+        remainingQuantity: { type: integer }
+        limitPrice: { type: integer, format: int64 }
+        fills:
+          type: array
+          items: { $ref: '#/components/schemas/Fill' }
+        avgFillPrice: { type: integer, format: int64, nullable: true, description: "체결분 가중 평균가(minor-unit). 미체결이면 null" }
+        createdAt: { type: string, format: date-time }
+    OrderPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/OrderResponse' }
+
+    # ---- portfolio / ledger ----
+    Holding:
+      type: object
+      properties:
+        playerId: { type: integer, format: int64 }
+        name: { type: string }
+        quantity: { type: integer }
+        avgCost: { type: integer, format: int64, description: "평균 매입가(minor-unit)" }
+        lastPrice: { type: integer, format: int64, description: "최근 체결가(없으면 base value), minor-unit" }
+        marketValue: { type: integer, format: int64, description: "quantity × lastPrice" }
+    PortfolioResponse:
+      type: object
+      properties:
+        cash: { type: integer, format: int64 }
+        holdings:
+          type: array
+          items: { $ref: '#/components/schemas/Holding' }
+        holdingsValue: { type: integer, format: int64 }
+        totalValue: { type: integer, format: int64, description: "cash + holdingsValue (지시적 평가, 실현가 아님)" }
+
+    LedgerEntry:
+      type: object
+      description: >
+        공통 봉투 + type + amount(현금 델타) + detail(oneOf). detail 스키마는 type에 대응:
+        TRADE_* → TradeDetail, DIVIDEND → DividendDetail, DEPOSIT → DepositDetail.
+      required: [id, timestamp, type, amount, balanceAfter]
+      properties:
+        id: { type: string, format: uuid }
+        timestamp: { type: string, format: date-time }
+        type: { $ref: '#/components/schemas/LedgerType' }
+        amount: { type: integer, format: int64, description: "현금 잔고 델타(+입금/배당/매도, -매수). minor-unit" }
+        balanceAfter: { type: integer, format: int64 }
+        detail:
+          oneOf:
+            - $ref: '#/components/schemas/TradeDetail'
+            - $ref: '#/components/schemas/DividendDetail'
+            - $ref: '#/components/schemas/DepositDetail'
+    TradeDetail:
+      type: object
+      properties:
+        playerId: { type: integer, format: int64 }
+        name: { type: string }
+        quantity: { type: integer }
+        price: { type: integer, format: int64 }
+        fee: { type: integer, format: int64 }
+    DividendDetail:
+      type: object
+      properties:
+        playerId: { type: integer, format: int64 }
+        name: { type: string }
+        matchLabel: { type: string, example: "울산 vs 포항 (R29)" }
+    DepositDetail:
+      type: object
+      properties:
+        reason: { type: string, example: SIGNUP_BONUS }
+    LedgerPage:
+      allOf:
+        - $ref: '#/components/schemas/PageMeta'
+        - type: object
+          properties:
+            content:
+              type: array
+              items: { $ref: '#/components/schemas/LedgerEntry' }
+
+    # ---- 페이징 공통 ----
+    PageMeta:
+      type: object
+      properties:
+        page: { type: integer }
+        size: { type: integer }
+        totalElements: { type: integer, format: int64 }
+        totalPages: { type: integer }
+
+security:
+  - bearerAuth: []

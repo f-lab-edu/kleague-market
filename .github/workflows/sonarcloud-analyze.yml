@@ -32,7 +32,7 @@ jobs:
 
       - name: Create Sonar Gradle File
         run: |
-          insert_string="plugins { id 'org.sonarqube' version '4.4.1.3373' }"
+          insert_string="plugins { id 'org.sonarqube' version '7.4.0.8496' }"
           if [ -f "build.gradle" ]; then
             echo "$insert_string" > temp.gradle
             cat build.gradle >> temp.gradle
