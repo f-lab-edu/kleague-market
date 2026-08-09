@@ -1,6 +1,7 @@
 package com.flab.kleaguemarket.order;
 
 import static org.hamcrest.Matchers.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -88,6 +89,8 @@ class OrderApiContractTest {
 
     @Test
     void 내_주문_목록은_페이지_형태로_반환한다() throws Exception {
+        주문을_생성한다();  // content[0]을 단언하려면 목록이 비어 있지 않아야 한다
+
         mockMvc.perform(get("/api/orders")
                 .header(HttpHeaders.AUTHORIZATION, BEARER)
                 .param("page", "0")
@@ -201,6 +204,44 @@ class OrderApiContractTest {
                 .andExpect(jsonPath("$.message", not(containsString("com."))))
                 .andExpect(jsonPath("$.timestamp").value(matchesPattern(ISO_UTC_PATTERN)))
                 .andExpect(jsonPath("$.path").value("/api/orders"));
+    }
+
+    @Test
+    void 같은_주문을_두_번_조회해도_생성_시각은_같다() throws Exception {
+        UUID orderId = 주문을_생성한다();
+
+        assertEquals(조회한_생성시각(orderId), 조회한_생성시각(orderId));
+    }
+
+    @Test
+    void 주문_id가_uuid_형식이_아니면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/orders/{id}", "not-a-uuid")
+                .header(HttpHeaders.AUTHORIZATION, BEARER))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value(notNullValue()))
+                .andExpect(jsonPath("$.timestamp").value(matchesPattern(ISO_UTC_PATTERN)))
+                .andExpect(jsonPath("$.path").value("/api/orders/not-a-uuid"));
+    }
+
+    @Test
+    void 목록_조회_시_status가_enum_밖의_값이면_400을_반환한다() throws Exception {
+        mockMvc.perform(get("/api/orders")
+                .header(HttpHeaders.AUTHORIZATION, BEARER)
+                .param("status", "WEIRD"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value(notNullValue()))
+                .andExpect(jsonPath("$.timestamp").value(matchesPattern(ISO_UTC_PATTERN)))
+                .andExpect(jsonPath("$.path").value("/api/orders"));
+    }
+
+    private String 조회한_생성시각(UUID orderId) throws Exception {
+        String response = mockMvc.perform(get("/api/orders/{id}", orderId)
+                        .header(HttpHeaders.AUTHORIZATION, BEARER))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        return JsonPath.read(response, "$.createdAt");
     }
 
     /**

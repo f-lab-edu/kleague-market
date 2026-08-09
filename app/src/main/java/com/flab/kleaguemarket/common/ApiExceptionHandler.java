@@ -9,6 +9,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -49,6 +50,17 @@ public class ApiExceptionHandler {
                                                               HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
                 "요청 본문을 읽을 수 없습니다. JSON 형식과 필드 값을 확인하세요", request);
+    }
+
+    /**
+     * 경로·쿼리 파라미터를 선언 타입으로 못 바꾼 경우 — uuid 아닌 {id}, enum 밖의 status 등.
+     * 기대 타입(UUID·OrderStatus)은 내부 구현이므로 파라미터 이름만 알린다.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e,
+                                                            HttpServletRequest request) {
+        return build(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR",
+                e.getName() + ": 형식이 올바르지 않습니다", request);
     }
 
     /** propertyPath는 "list.size" 형태라 메서드명이 응답에 새지 않게 마지막 마디만 쓴다. */

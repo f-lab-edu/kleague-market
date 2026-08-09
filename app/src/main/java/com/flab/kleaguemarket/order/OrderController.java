@@ -36,6 +36,8 @@ import org.springframework.web.bind.annotation.RestController;
 public class OrderController {
 
     private static final UUID KNOWN_ORDER_ID = UUID.fromString("0f8fad5b-d9cb-469f-a165-70867728950e");
+    // 주문 생성 시각은 불변 사실 — Instant.now()면 같은 주문을 조회할 때마다 달라진다
+    private static final Instant CREATED_AT = Instant.parse("2026-08-01T00:00:00Z");
 
     @PostMapping
     public OrderResponse create(@Valid @RequestBody OrderRequest request) {
@@ -50,7 +52,7 @@ public class OrderController {
                 request.limitPrice(),
                 List.of(),
                 null,
-                Instant.now()
+                CREATED_AT
         );
     }
 
@@ -92,7 +94,7 @@ public class OrderController {
                 15_000L,
                 List.of(),
                 null,
-                Instant.now()
+                CREATED_AT
         );
     }
 }
