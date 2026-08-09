@@ -12,3 +12,7 @@ java {
 repositories {
     mavenCentral()
 }
+
+tasks.named('test') {
+    useJUnitPlatform()
+}

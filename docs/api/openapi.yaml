@@ -375,7 +375,13 @@ components:
         status: { $ref: '#/components/schemas/OrderStatus' }
         quantity: { type: integer }
         filledQuantity: { type: integer }
-        remainingQuantity: { type: integer }
+        remainingQuantity:
+          type: integer
+          description: >
+            호가창에 살아 있어 **아직 체결될 수 있는** 수량(산술 잔여 아님).
+            취소·전량체결로 주문이 종료되면 0. 따라서 `filledQuantity + remainingQuantity`는
+            OPEN·PARTIALLY_FILLED에서만 quantity와 같고, CANCELLED에선 작을 수 있다
+            (10주 중 6주 체결 후 취소 → filled=6, remaining=0, quantity=10). 설계 스펙 D4 참조
         limitPrice: { type: integer, format: int64 }
         fills:
           type: array
