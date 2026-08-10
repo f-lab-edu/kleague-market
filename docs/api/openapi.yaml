@@ -161,6 +161,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OrderPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /orders/{id}:
@@ -175,6 +176,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OrderResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
     delete:
@@ -188,6 +190,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OrderResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
