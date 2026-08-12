@@ -16,7 +16,7 @@ K리그 선수를 자산으로 사고파는 가상 포인트 판타지 주식 �
 |---|---|
 | 제품·경제·게임 규칙 (D0~D9) | `docs/superpowers/specs/2026-07-29-kleague-market-design.md` |
 | 아키텍처 결정 | `docs/adr/` — 불변, 결정에 영향 없는 오기 정정만 허용 |
-| API 계약 | `docs/api/openapi.yaml`(기계) + `docs/api/README.md`(사람) |
+| API 계약 | `docs/api/openapi.yaml`(기계) + `docs/api/README.md`(사람) — 코드와 충돌하면 **계약이 진실**. 코드를 임의로 고치지 말고 보고한다 |
 | 작업 방식 | `docs/workflow.md` |
 
 `docs/`는 Obsidian 보관함이다. 노트 간 연결은 `[[노트 이름]]` 위키 링크로 쓴다.
