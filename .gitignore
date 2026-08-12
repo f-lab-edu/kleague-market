@@ -39,3 +39,7 @@ out/
 ### Obsidian (docs/ as vault) ###
 # 에디터 설정은 노이즈 → 통째 무시. 문서(.md)는 추적.
 docs/.obsidian/
+
+### Claude Code — 개인 파일 (커밋 금지) ###
+CLAUDE.local.md
+.claude/settings.local.json
