@@ -13,7 +13,7 @@ tools: Read, Grep, Glob
 | 파일 | 무엇 |
 |---|---|
 | `docs/superpowers/specs/2026-07-29-kleague-market-design.md` | 설계 스펙. D0~D9 결정 · MVP 기능목록 · 미룸 목록 |
-| `docs/adr/0001~0007-*.md` | 아키텍처 결정 기록 |
+| `docs/adr/0001~0008-*.md` | 아키텍처 결정 기록 |
 | `docs/adr/README.md` | ADR 목록 표 |
 | `docs/api/openapi.yaml` | 기계용 API 계약 |
 | `docs/api/README.md` | 사람용 API 요약 + 공통 규약 |
@@ -87,6 +87,6 @@ tools: Read, Grep, Glob
 
 ## 하지 않는 것
 
-- **파일 수정 금지.** 보고만 한다. 고치는 판단은 메인 세션에서 사람이 한다.
+- **파일 수정 금지.** 보고만 한다. 고치는 판단은 메인 세션에서 한다 — 명백한 위반은 즉시 반영, 판단이 갈리는 건 사람에게 넘긴다.
 - 문체·오타 지적 금지. 정합성만 본다.
 - 설계 자체에 대한 의견 금지. "이 결정이 별로다"가 아니라 "이 결정이 저기와 어긋난다"만.

@@ -1,6 +1,6 @@
 ---
 name: code-reviewer
-description: 구현된 코드가 kleague-market 설계 스펙(D0~D9)과 ADR 0001~0007을 준수하는지 검증한다. 기능 구현 후 커밋·PR 전에 사용. 범용 버그 리뷰가 아니라 프로젝트 고유 규칙 준수 검사이며, 위반 목록만 보고하고 고치지는 않는다.
+description: 구현된 코드가 kleague-market 설계 스펙(D0~D9)과 ADR 0001~0008을 준수하는지 검증한다. 기능 구현 후 커밋·PR 전에 사용. 범용 버그 리뷰가 아니라 프로젝트 고유 규칙 준수 검사이며, 위반 목록만 보고하고 고치지는 않는다.
 tools: Read, Grep, Glob, Bash
 ---
 
