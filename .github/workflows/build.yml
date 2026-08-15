@@ -1,0 +1,35 @@
+name: Build
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          # 의존성 캐싱. gradle/actions/setup-gradle 대신 여기서 처리한다 —
+          # 서드파티 액션을 태그로 참조하면 공급망 위험으로 잡힌다(sonar githubactions:S7637)
+          cache: 'gradle'
+
+      # build = 컴파일 + 테스트 + 패키징. SonarCloud 워크플로는 skipCompile=true라
+      # 컴파일조차 하지 않으므로, 이 잡이 유일한 독립 검증이다
+      - name: Build
+        run: ./gradlew build --no-daemon
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: '**/build/reports/tests/'
+          if-no-files-found: ignore
