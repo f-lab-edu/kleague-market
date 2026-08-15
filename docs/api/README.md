@@ -15,7 +15,7 @@
 - **체결가**: `limitPrice`는 **한도**(매수=최대지불, 매도=최소수취)이고 실제 체결가는 **maker 가격**(호가창에 먼저 있던 주문의 가격). 매수 한도 102가 매도 한도 100과 만나면 **100**에 체결되고 차액은 taker 이득 → `fills[].price`가 `limitPrice`와 다를 수 있고, 원소마다 다를 수도 있다. 설계 스펙 D4
 - **`avgFillPrice`는 표시용**: `Σ(체결가×수량) ÷ Σ수량`을 HALF_UP 정수 반올림(매수·매도 동일). 반올림이 손실적이라 **`avgFillPrice × filledQuantity`로 체결금액을 계산하면 안 된다**(101×7 = 707 ≠ 704) — 정확한 금액은 `fills` 합산
 - **현금 잔고의 표준 용어는 `balance`** — `cash`를 쓰지 않는다. 원장이 `balanceAfter`로 부르고(진실의 출처, ADR-0006) 잔고는 거기서 재계산되는 파생값이라 원본의 이름을 따른다
-- **잔고·수량은 총액/가용/예약 3종**: 에스크로 예약분이 있어 총액만으론 주문 가능액을 알 수 없다. `balance = availableBalance + reservedBalance`, `quantity = availableQuantity + reservedQuantity`. 예약분은 **저장값이 아니라 미체결 주문에서 유도**
+- **잔고·수량은 총액/가용/예약 3종**: 에스크로 예약분이 있어 총액만으론 주문 가능액을 알 수 없다. `balance = availableBalance + reservedBalance`, `quantity = availableQuantity + reservedQuantity`. 예약분은 **저장값이 아니라 미체결 주문에서 유도**. `reservedBalance`의 정의는 **각 미체결 매수 주문의 최대 필요 현금의 합** — 계산식이 아니라 의미다(정산 정책이 바뀌어도 계약은 그대로). 새 주문의 최대 필요 현금이 `availableBalance`를 넘으면 `INSUFFICIENT_BALANCE`
 
 ## 엔드포인트
 

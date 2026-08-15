@@ -344,16 +344,17 @@ components:
           type: integer
           format: int64
           description: >
-            즉시 주문에 쓸 수 있는 금액. 이 값이 부족하면 INSUFFICIENT_BALANCE.
-            총액만 주면 거부 사유를 화면에서 알 수 없어 분리한다
+            즉시 주문에 쓸 수 있는 금액. 새 주문의 최대 필요 현금이 이 값을 넘으면
+            INSUFFICIENT_BALANCE. 총액만 주면 거부 사유를 화면에서 알 수 없어 분리한다
         reservedBalance:
           type: integer
           format: int64
           description: >
-            미체결 매수 주문의 에스크로 예약액. **저장값이 아니라 유도값** —
-            `Σ(remainingQuantity × limitPrice) WHERE side=BUY AND status IN (OPEN, PARTIALLY_FILLED)`.
-            체결가 = maker 가격이라 호가창 잔량은 체결가 = 자기 한도가이므로 이 식이 정확하다(설계 스펙 D4).
-            별도 컬럼으로 저장하면 호가창과 어긋난다
+            미체결 매수 주문이 잡아 둔 에스크로 = **각 미체결 매수 주문의 최대 필요 현금의 합**.
+            "그 주문들이 앞으로 최대로 쓸 수 있는 금액"이라는 뜻이며, 계산식은 정산 정책에 따라
+            달라진다 — 매수자에게 수수료를 부과하는 정책에서는 잔여분의 최대 수수료도 포함된다
+            (수수료 정책 미정, 설계 스펙 D7).
+            **저장값이 아니라 미체결 주문에서 유도한다** — 별도 컬럼으로 두면 호가창과 어긋난다
 
     # ---- market ----
     PlayerSummary:
