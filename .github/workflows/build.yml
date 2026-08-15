@@ -17,9 +17,9 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+          # 의존성 캐싱. gradle/actions/setup-gradle 대신 여기서 처리한다 —
+          # 서드파티 액션을 태그로 참조하면 공급망 위험으로 잡힌다(sonar githubactions:S7637)
+          cache: 'gradle'
 
       # build = 컴파일 + 테스트 + 패키징. SonarCloud 워크플로는 skipCompile=true라
       # 컴파일조차 하지 않으므로, 이 잡이 유일한 독립 검증이다
