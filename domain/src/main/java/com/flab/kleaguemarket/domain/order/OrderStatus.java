@@ -1,4 +1,4 @@
-package com.flab.kleaguemarket.order.dto;
+package com.flab.kleaguemarket.domain.order;
 
 public enum OrderStatus {
     OPEN,

@@ -1,5 +1,7 @@
 package com.flab.kleaguemarket.order.dto;
 
+import com.flab.kleaguemarket.domain.order.OrderStatus;
+import com.flab.kleaguemarket.domain.order.Side;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;

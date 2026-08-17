@@ -1,11 +1,11 @@
 package com.flab.kleaguemarket.order;
 
 import com.flab.kleaguemarket.common.ApiException;
+import com.flab.kleaguemarket.domain.order.OrderStatus;
+import com.flab.kleaguemarket.domain.order.Side;
 import com.flab.kleaguemarket.order.dto.OrderPage;
 import com.flab.kleaguemarket.order.dto.OrderRequest;
 import com.flab.kleaguemarket.order.dto.OrderResponse;
-import com.flab.kleaguemarket.order.dto.OrderStatus;
-import com.flab.kleaguemarket.order.dto.Side;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
