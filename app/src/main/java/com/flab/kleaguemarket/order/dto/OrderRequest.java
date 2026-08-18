@@ -1,5 +1,6 @@
 package com.flab.kleaguemarket.order.dto;
 
+import com.flab.kleaguemarket.domain.order.Side;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 
