@@ -1,3 +1,16 @@
 plugins {
     id 'kleague.java-conventions'
 }
+
+// JUnit이 필요한 순수 자바 모듈은 지금 domain뿐이라 컨벤션 플러그인이 아니라 여기에 둔다 (ADR-0008).
+// 여러 모듈이 같은 테스트 스택을 쓰게 되면 그때 공통 규약으로 올린다.
+// domain은 Spring을 모르므로 spring-boot-starter-test를 쓸 수 없다 (ADR-0001).
+//
+// BOM으로 버전을 한 곳에 모은다 — jupiter는 5.x, platform은 1.x라 각각 적으면 조용히 어긋난다.
+// 5.12.2는 app이 spring-boot-starter-test로 끌어오는 것과 맞췄다. launcher는 Gradle이 테스트를
+// 띄울 때 런타임에 필요하고, BOM이 없으면 버전을 못 찾아 실행 자체가 실패한다.
+dependencies {
+    testImplementation platform('org.junit:junit-bom:5.12.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
