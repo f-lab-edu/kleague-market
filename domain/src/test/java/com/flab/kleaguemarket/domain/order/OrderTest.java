@@ -103,4 +103,22 @@ class OrderTest {
                 ORDER_ID, USER_ID, PLAYER_ID, Side.SELL, 10, 102L,
                 List.of(new Fill(101L, 1)), CREATED_AT));
     }
+
+    @Test
+    void 매수는_한도가와_같은_가격의_체결을_허용한다() {
+        // 계약은 "체결가 ≤ 한도가"다 — 등호가 빠지면 정확히 한도가에 체결된 정상 주문이 거부된다 (설계 스펙 D4)
+        Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 100L,
+                List.of(new Fill(100L, 3)), CREATED_AT);
+
+        assertEquals(3, order.filledQuantity());
+    }
+
+    @Test
+    void 매도는_한도가와_같은_가격의_체결을_허용한다() {
+        // 매도는 "체결가 ≥ 한도가"로 부등호가 뒤집힐 뿐 등호는 똑같이 포함된다 (설계 스펙 D4)
+        Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.SELL, 10, 100L,
+                List.of(new Fill(100L, 3)), CREATED_AT);
+
+        assertEquals(3, order.filledQuantity());
+    }
 }

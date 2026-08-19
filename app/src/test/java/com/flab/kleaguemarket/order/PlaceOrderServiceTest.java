@@ -79,8 +79,19 @@ class PlaceOrderServiceTest {
         assertThat(placed.orderId()).isNotNull();
         assertThat(placed.fills()).isEqualTo(matched);
 
+        // 매칭 엔진에 넘긴 주문이 명령 그대로인지 본다. any()로만 두면 엉뚱한 주문을 매칭에 보내고
+        // 돌려받은 체결을 원래 주문에 반영해 저장해도 통과한다
+        ArgumentCaptor<Order> requested = ArgumentCaptor.forClass(Order.class);
+        verify(matchingEngine).match(requested.capture());
+        assertThat(requested.getValue().userId()).isEqualTo(USER_ID);
+        assertThat(requested.getValue().playerId()).isEqualTo(PLAYER_ID);
+        assertThat(requested.getValue().side()).isEqualTo(Side.BUY);
+        assertThat(requested.getValue().quantity()).isEqualTo(10);
+        assertThat(requested.getValue().limitPrice()).isEqualTo(100L);
+        // orderId는 매칭 전에 발급된다 (설계 스펙 D4) — 매칭에 넘긴 주문과 반환된 주문의 id가 같아야 한다
+        assertThat(requested.getValue().orderId()).isEqualTo(placed.orderId());
+
         ArgumentCaptor<Order> saved = ArgumentCaptor.forClass(Order.class);
-        verify(matchingEngine).match(any(Order.class));
         verify(orderRepository).save(saved.capture());
         // 매칭 전 주문을 저장하고 매칭 후 주문을 반환하면 DB와 응답이 어긋난다. 체결이 비어 있으면
         // 두 주문이 같아져 이 회귀를 못 잡으므로 이 시나리오의 체결은 비어 있지 않아야 한다
