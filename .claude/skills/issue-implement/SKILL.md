@@ -1,303 +1,442 @@
 ---
 name: issue-implement
-description: GitHub Issue를 범위 계약으로 삼아 조사·설계·테스트·구현·검증·문서화·Draft PR 생성까지 수행한다. 이슈 번호, 이슈 URL, 자연어 요구사항 중 하나를 받는다. merge는 하지 않는다
+description: Use when implementing or resuming a GitHub Issue selected in the active batch, through Design Freeze, tests, verification, review, and a Ready PR
 argument-hint: "[issue-number|issue-url|feature-description] (앞에 --dry-run 가능)"
 disable-model-invocation: true
-allowed-tools: Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git branch:*) Bash(git ls-remote:*) Bash(git remote show:*) Bash(git fetch:*)
+allowed-tools: Bash(gh api:*) Bash(gh issue view:*) Bash(gh issue list:*) Bash(gh pr list:*) Bash(gh pr view:*) Bash(gh pr checks:*) Bash(gh pr create:*) Bash(gh pr edit:*) Bash(git status:*) Bash(git diff:*) Bash(git log:*) Bash(git branch:*) Bash(git worktree:*) Bash(git ls-remote:*) Bash(git remote show:*) Bash(git fetch:*) Bash(git rev-parse:*)
 ---
 
 # Issue 기반 구현
 
-`$ARGUMENTS`를 범위 계약으로 삼아 Draft PR까지 만든다.
+`$ARGUMENTS`의 GitHub Issue를 범위 계약으로 삼아 Ready PR까지 구현한다. merge는 사용자의
+권한이며 이 스킬은 호출하지 않는다.
 
-**역할 경계 한 줄:** 초안은 위임하고, **최종** 판단은 위임하지 않는다.
-구현·테스트와 **가역적이고 Issue 범위 안의 설계 판단**은 여기서 결정하고 근거를 남긴다.
-사람은 Draft PR에서 그 결정을 **최종 수용·수정·기각**한다. ADR급·고위험 결정은 구현 전에 사람이 확정한다.
+**핵심 원칙**
 
-이 스킬은 **호출된 뒤 전체 작업에 계속 적용되는 실행 규칙**이다. 1회성 안내가 아니다.
+- 새 구현은 현재 배치에 선택된 Issue 하나만 수행한다.
+- 구현 레인은 하나다. 다른 구현 PR이 열려 있으면 새 Issue를 시작하지 않는다.
+- 미학습 PR은 다음 구현을 막지 않지만, `BLOCKING`은 즉시 막는다.
+- PR 전 품질 게이트는 테스트·전체 build·자체 리뷰·`code-reviewer`의 조합이다.
+- 초안은 위임하되 최종 판단은 사용자가 한다.
 
-> frontmatter의 `allowed-tools`는 **화이트리스트가 아니라 사전 승인 목록**이다 — 목록에 없는 도구도 기존 권한 정책에 따라 그대로 호출된다. 여기엔 **조회 명령만** 넣었다. `git push`·`gh issue create`·`gh pr create`는 일부러 빼서 권한 프롬프트가 뜨게 했다(원격에 접촉한다는 신호).
+이 스킬은 호출 뒤 전체 작업에 계속 적용되는 실행 규칙이다.
+
+> frontmatter의 `allowed-tools`는 사전 승인 목록이다. PR 생성·갱신은 짧은 큐 잠금 안에서
+> 끝내야 하므로 이 명시적 스킬 호출에만 사전 승인한다. merge·Issue close는 승인하지 않는다.
 
 ---
 
-## ① 입력 판별 → Issue 확정
+## ① 입력과 작업 종류 확정
 
-`--dry-run`이 앞에 붙어 있으면 → **⑦ Dry run**으로 간다.
+`--dry-run`이 앞에 있으면 **⑨ Dry run**으로 간다.
 
-**순서가 중요하다.** 게이트를 먼저 보면 *같은 Issue를 이어서 하는 경우*까지 막힌다 — 그 Issue의 Draft PR이 바로 게이트에 걸리기 때문이다. **대상 Issue를 먼저 확정하고, 그 Issue의 작업을 먼저 찾은 다음, 남의 것으로 게이트를 건다.**
+### 입력 판별
 
-### 1단계 — 입력 판별
-
-| 조건 | 분기 |
+| 조건 | 처리 |
 |---|---|
-| `^#?[0-9]+$` | 이슈 번호 → 2단계 |
-| `github.com/<owner>/<repo>/issues/<N>` | URL — **owner/repo가 이 저장소가 아니면 중단·보고** → 2단계 |
-| 그 외 | 자연어 → **대상 Issue가 아직 없으므로 3단계(게이트)를 먼저 본 뒤** 아래 *자연어인 경우*로 |
+| `^#?[0-9]+$` | Issue 번호로 조회 |
+| `github.com/<owner>/<repo>/issues/<N>` | 현재 저장소와 owner/repo가 다르면 중단 |
+| 그 외 자연어 | 유사 Issue를 찾고, 없으면 Issue 초안을 승인받아 생성한 뒤 종료 |
 
-### 2단계 — 이 Issue의 기존 작업 찾기 (재개 우선)
+자연어 요구사항으로 새 Issue를 만들더라도 즉시 구현하지 않는다. `/batch`가 그 Issue를 현재
+배치에 선택해야 구현할 수 있다.
 
-```
-1. gh issue view <N> --json number,title,body,state
-   CLOSED면 확인 요청 후 중단
+### 대상 Issue의 기존 작업을 먼저 찾는다
 
-2. gh pr list --state all --search "<N>" \
-     --json number,state,isDraft,headRefName,closingIssuesReferences
-   ※ --state 기본값이 open이라 --state all 이 없으면 MERGED를 못 찾는다
-   ※ 숫자만 검색하면 오탐이 있다 — closingIssuesReferences 또는 본문의 `Closes #N`으로 확인한다
+새 작업 게이트보다 재개 판정을 먼저 한다.
 
-   MERGED  → "이미 완료" 보고 후 중단
-   OPEN    → 그 브랜치를 checkout 해서 **이어서 작업**(3단계 게이트 건너뜀)
+1. `gh issue view <N> --json number,title,body,state,labels,closedByPullRequestsReferences`
+2. `gh pr list --state all --limit 1000 --search "<N>" --json number,state,isDraft,headRefName,closingIssuesReferences`
+3. `closedByPullRequestsReferences`를 우선 사용하고, 숫자 검색 결과는
+   `closingIssuesReferences` 또는 PR 본문의 `Closes #N`으로 다시 확인한다.
+4. `git branch -a`와 `git worktree list`에서 Issue 브랜치를 확인한다.
 
-3. git branch -a | grep issue-<N>
-   있으면 그 브랜치 재사용. 새로 만들지 않는다
-```
+판정:
 
-**중복 브랜치·중복 PR을 만들지 않는다.**
+- **OPEN PR**: 같은 Issue 세션·브랜치를 재개한다. 새 배치 슬롯을 쓰지 않는다.
+- **MERGED PR + 열린 원 Issue**: `BLOCKING` 복구로 명시된 경우만 recovery 작업으로 처리한다.
+- **MERGED PR + 복구 근거 없음**: 이미 완료된 작업으로 보고하고 중단한다.
+- **기존 Issue 브랜치만 존재**: 범위와 상태를 확인한 뒤 재사용한다.
+- **아무 작업도 없음**: 새 구현 게이트로 간다.
 
-### 3단계 — 게이트 (다른 Issue의 미완 작업)
-
-여기 오는 건 **새 작업일 때뿐**이다. 장부 둘을 모두 본다.
-
-```
-gh pr list --draft --state open --json number,title,headRefName
-  → 브랜치가 feature/issue-* 또는 fix/issue-* 인 것만 센다
-~/Dev/kleague-learning/REVIEW-QUEUE.md 의 "대기 중"
-  → 파일이 없으면 오류가 아니라 대기 0개로 본다
-```
-
-**둘 중 하나라도 미완이면 중단**한다. Draft PR은 기계 판정이고, REVIEW-QUEUE는 *"근거와 기각한 대안까지 말할 수 있는가"*라는 사람 판정이다. **Ready로만 바꾸고 학습을 건너뛰면 Draft 게이트는 열려도 큐는 안 닫힌다** — 그래서 둘 다 본다.
-
-중단 시 해당 PR 번호·큐 항목과 함께 보고한다.
-
-- 허용되는 것: Follow-up Issue 생성 · 백로그 정리 · 문서 조회 · 질문
-- 예외: 사용자가 **명시적으로** 긴급 예외를 선언한 경우
-
-> 구현이 빨라진 만큼 미이해 코드가 쌓일 위험도 그만큼 커졌다. 이 게이트가 없으면 결과는 "이해 못 한 코드 더미 + merge 버튼"이다.
-
-### 자연어인 경우
-
-Issue가 범위 계약이므로 **Issue 없이 구현하지 않는다.** 먼저 만들고 합류한다.
-
-```
-1. gh issue list --state all --search "<핵심어>"  — 유사·중복 Issue 검색
-   같은 작업이 명확하면 그 Issue 사용
-   유사하나 확신이 안 서면 사용자에게 한 번만 질문
-2. .github/ISSUE_TEMPLATE/feature.md 형식으로 본문을 채운다
-   채우지 못한 절(특히 비목표·완료 조건)은 사용자에게 질문한다
-3. 완성본을 보여주고 승인받은 뒤 gh issue create
-4. 생성된 번호로 이슈번호 분기에 합류
-```
+중복 브랜치와 중복 PR을 만들지 않는다.
 
 ---
 
-## ② Design Freeze
+## ② 배치 게이트
 
-Issue 본문과 근거 문서(`docs/superpowers/specs/`·`docs/adr/`·`docs/api/openapi.yaml`)를 읽고 접근을 정리해 **Issue 댓글**로 기록한다. 사용자가 쓴 본문은 함부로 고치지 않는다 — 저자와 시점이 다르므로 섞으면 누가 뭘 약속했는지 사라진다.
+`~/Dev/kleague-learning/REVIEW-QUEUE.md`를 수정 직전에 다시 읽는다.
+
+### 스키마와 소유권
+
+- 첫 줄의 `<!-- workflow-schema: batch-v1 -->`가 없거나 다른 버전이면 추측하지 않고 중단한다.
+- 이 스킬은 Claude Code 소유 절 중 `현재 배치`와 `구현 산출물`만 수정한다.
+- `학습 상태`와 `발견 사항`은 Codex 소유이므로 수정하지 않는다.
+- 파일 전체 재작성, 자동 정렬, 표 재포맷을 하지 않는다.
+
+큐를 쓸 때는 `mkdir ~/Dev/kleague-learning/.review-queue.lock`에 성공한 세션만 수정한다.
+실패하면 기다리거나 기존 잠금을 지우지 않고 중단한다. 성공한 세션은 잠금 안에서 큐를 다시 읽고
+`claude-<purpose>-issue-<N>-<ownerToken>-<UTC>` 이름의 빈 하위 디렉터리로 소유 정보를 남긴다.
+자기 절만 수정·검증한 뒤 하위 디렉터리와 잠금 디렉터리를 순서대로 `rmdir`한다. 남은 잠금은
+자동 삭제하지 않는다.
+
+`BLOCKING` 절에 항목이 있으면 상태 필드와 관계없이 배치의 실효 상태는 `FROZEN`이다.
+
+### 새 일반 구현 허용 조건
+
+아래를 모두 만족해야 한다.
+
+1. 현재 배치 상태가 `ACTIVE`다.
+2. 대상 Issue가 `선택한 Issue`에 있다.
+3. `BLOCKING` 항목이 없다.
+4. `구현 산출물`의 일반 구현 PR이 3개 미만이다.
+5. 다른 구현 PR이 열려 있지 않다.
+6. 새 구현이면 `진행 중 구현`과 `일시 정지 구현`이 모두 `없음`이다.
+
+열린 PR은 Draft 여부와 관계없이 센다.
+
+```bash
+set -o pipefail
+gh api --paginate --slurp 'repos/{owner}/{repo}/pulls?state=open&per_page=100' |
+  jq -e 'add | map({number, draft, title, body, head: .head.ref, base: .base.ref})'
+```
+
+브랜치, `Closes #N`, 연결된 Issue를 대조해 기능·버그·recovery·Stabilization PR을 식별한다.
+대상 Issue 자신의 OPEN PR 재개는 5번의 예외다.
+
+`PENDING`, `LEARNING`, `SNAPSHOT_LEARNED`, `DELTA_REQUIRED` 같은 학습 상태는 새 구현
+게이트가 아니다. 직전 구현 PR이 merge되어 열려 있는 구현 PR이 없으면 다음 선택 Issue를 시작할
+수 있다.
+
+| 직전 PR·학습 상태 | 새 구현 판정 |
+|---|---|
+| PR merge + 학습 미완료 + `BLOCKING` 없음 | 다른 게이트를 만족하면 **허용** |
+| Ready/Draft와 관계없이 구현 PR OPEN | **거부** |
+| 학습 행 누락 + 구현 PR OPEN | **거부** |
+| `BLOCKING` 존재 | 일반 구현 **거부**; 지정된 recovery만 허용 |
+
+이전 스키마의 `대기 중` 항목이나 “학습 완료가 다음 구현 조건” 규칙을 적용하지 않는다.
+
+### 예외 작업
+
+- **Recovery**: 해당 Issue를 가리키는 `BLOCKING`을 해소하는 작업만 허용한다.
+- **Stabilization**: 현재 상태가 `STABILIZING`이고 배치 최종 리뷰가 확정한 Issue만 허용한다.
+- **Pre-merge remediation**: 현재 선점 Issue 또는 연결된 OPEN 구현·Stabilization PR이 자기
+  `BLOCKING`을 해소하는 작업만 허용한다.
+
+Recovery와 Stabilization은 일반 구현 PR 3개 상한을 소비하지 않는다. 다른 새 기능을 섞지 않는다.
+
+게이트가 닫혔다면 해당 상태와 근거를 보고하고 중단한다. 학습 미완료만을 이유로 중단하지 않는다.
+
+---
+
+## ③ 구현 레인 선점
+
+새 구현은 먼저 기본 브랜치를 확인하고 fetch해 base SHA를 고정하되 branch/worktree와 Issue
+댓글은 아직 만들지 않는다.
+
+```bash
+git remote show origin | sed -n 's/.*HEAD branch: //p'
+git fetch origin <기본브랜치>
+git rev-parse origin/<기본브랜치>
+```
+
+모든 mode는 공용 잠금 아래 활성 claim을 잡는다. NORMAL·STABILIZATION은 큐의 정확한
+`- 진행 중 구현: 없음` 한 줄만 다음 값으로 교체한다. RECOVERY는 아래 경우만 허용한다.
+
+```text
+- 진행 중 구현: #N / <NORMAL|RECOVERY|STABILIZATION> / <branch> / <base SHA> /
+  <새 owner token> / PENDING
+```
+
+RECOVERY이고 `진행 중 구현`과 `일시 정지 구현`이 모두 `없음`이면 정확한 활성 빈 줄을 RECOVERY
+claim으로 교체한다. 다른 NORMAL claim이 이미 있고 `일시 정지 구현`이 비어 있으면, 같은 잠금과
+한 패치 안에서 그 정확한 NORMAL claim을 `일시 정지 구현`으로 옮기고 `진행 중 구현`에 RECOVERY
+claim을 기록한다. 그 밖에 `일시 정지 구현`이 이미 차 있거나 활성 claim이 NORMAL이 아니면
+중단한다.
+
+owner token은 `uuidgen`으로 새로 만들고 현재 세션이 보관한다. 잠금을 얻기 전 GitHub 게이트를
+확인하고, 잠금 안에서는 큐를 다시 읽어 정확한 이전 값만 교체한다. 편집 충돌이 나거나 다시 읽은
+Issue·mode·branch·base SHA·token이 자기 값과 다르면 파일과 GitHub를 더 바꾸지 않고 중단한다.
+선점에 성공한 세션만 Design Freeze 댓글과 worktree 생성을 진행한다.
+
+같은 Issue 번호만으로 기존 선점을 자기 것으로 취급하지 않는다. 기존 claim 재개는 사용자가
+해당 세션 재개를 명시하고, 현재 디렉터리가 claim의 실제 worktree 경로와 같을 때만 허용한다.
+원 세션이 종료됐다고 사용자가 확인한 새 세션은 공용 잠금 아래 기존 claim의 Issue·mode·branch·
+base·worktree를 유지하고 owner token만 새 값으로 교체한 뒤 재개한다. 기존 OPEN PR을 재개할 때도
+PR head branch와 현재 worktree가 일치해야 한다.
+
+---
+
+## ④ 경량 Design Freeze
+
+Issue 본문과 근거 문서(`docs/superpowers/specs/`, `docs/adr/`, `docs/api/`)를 읽고 아래
+형식의 Issue 댓글을 남긴다.
 
 ```markdown
 ## 구현 계약 및 Design Freeze
 
 ### Goal
+
 ### Acceptance Criteria
+
 ### Non-goals
-### Invariants          <!-- 지켜야 할 도메인 불변식 -->
-### Decisions           <!-- 내린 판단과 근거. 기각한 대안 포함 -->
-### Calibration         <!-- 값 · 임시 근거 · 위치 · 조정 경계 -->
-### Implementation Outline
-### Verification        <!-- 실행할 명령 -->
+
+### Invariants
+
+### Scope Decisions
+
+### Calibration
+
+### Implementation Sketch
+
+### Verification
 ```
 
-**기록한 뒤 승인을 기다리지 않고 ③으로 간다.** "다음 단계로 진행할까요?" 같은 형식적 승인 요청은 하지 않는다.
+Design Freeze에는 구현 전에 고정해야 하는 범위와 규칙만 남긴다.
 
-멈추는 경우는 둘뿐이다 — ⑥의 정지 조건, 그리고 **①에서 Issue 본문을 새로 만들 때**(그건 범위 계약 자체라 사람이 승인해야 한다).
+- 핵심 Scope Decision은 3~5개로 제한한다.
+- 구현 방향은 책임 수준으로 쓴다.
+- 정확한 파일·클래스·포트 이름, 메서드 시그니처를 고정하지 않는다.
+- 세부 구현 판단, 기각한 대안, 실제 구조와 Freeze의 차이는 PR에 기록한다.
+- 이 Issue만을 위한 별도 `docs/` 구현 계획 문서를 만들지 않는다.
 
-### Freeze 이후 설계를 다시 여는 조건
-
-**허용:** 현재 설계로 인수 조건을 못 채움 · 계약/ADR/확정 규칙과 명백히 충돌 · 테스트가 실제 결함을 드러냄 · 데이터 무결성·동시성·보안·트랜잭션 경계 문제 · 사용자가 요청
-
-**불허:** 더 예쁜 구조가 떠올랐다 · 다른 방식도 가능하다 · 미래 확장에 유용할 것 같다 · 더 범용적인 추상화가 가능하다 · 현재 인수 조건에 없는 개선점이 보였다
-
-실제로 바뀌었으면 Issue에 **Design Change** 댓글을 추가한다 — 변경 내용 · 근거 · 영향 범위 · 수정한 테스트와 문서 · 현재 범위 안인지.
-
----
-
-## ③ 구현
-
-브랜치는 `feature/issue-<N>-<slug>` 또는 `fix/issue-<N>-<slug>`. **기본 브랜치에서 직접 작업하지 않는다.**
-
-**새 브랜치는 현재 체크아웃된 브랜치가 아니라 최신 `origin/<기본 브랜치>`를 기준으로 만든다.** 기존 Issue 브랜치를 재개할 때만 그 브랜치를 checkout한다.
-
-```bash
-git remote show origin | sed -n 's/.*HEAD branch: //p'   # 기본 브랜치 확인
-git fetch origin <기본브랜치>
-git switch -c feature/issue-<N>-<slug> origin/<기본브랜치>
-```
-
-현재 브랜치에서 그냥 `checkout -b` 하면 **직전 작업의 커밋이 다음 PR에 섞인다.** 특히 squash merge 뒤 로컬에 남아 있는 브랜치 위에서 시작하면 이미 머지된 변경이 다시 올라온다.
-
-미커밋 변경이 있으면: 현재 Issue와 관련 있으면 보존하고 이어 쓴다. 관련 없으면 되돌리거나 삭제하지 않고, `git add .`로 무분별하게 stage하지 않는다. 안전하게 분리할 수 없으면 코드 수정 전에 한 번만 보고한다. 사용자 동의 없이 stash·reset·checkout 복원을 하지 않는다.
-
-### 순서
-
-테스트를 먼저 쓰고 최소 구현으로 통과시킨다. 레이어별 파일만 만들고 기능을 미완성으로 남기지 않는다 — 작은 수직 단위로 완성한다.
-
-### 이 저장소의 도메인 규칙
-
-여기에 복사하지 않는다 — 두 곳에 있으면 한쪽만 고쳐서 썩는다(`CLAUDE.md`의 원칙).
-
-**`CLAUDE.md`의 "구현 시 자주 틀리는 규칙" + `docs/api/README.md` 공통 규약 + `.claude/agents/code-reviewer.md`의 체크리스트**를 따른다. 셋 다 읽고 시작한다.
-
-### 튜닝 상수는 정지 사유가 아니다
-
-설계 스펙 3행이 *"튜닝 상수(공급 N·시작 포인트·수수료율·배당 가중치 등)는 **구현 시 캘리브레이션**"*이라고 정해 놨다. 값이 미확정이어도 **구현을 멈추지 않는다.**
-
-- Issue의 캘리브레이션 항목에 **초기값 · 임시 근거 · 값의 위치 · 조정 경계**를 기록한다
-- magic number로 흩뿌리지 말고 **도메인 정책 상수 또는 설정 프로퍼티**로 격리한다
-- 운영 중 바뀔 값(수수료율·공급량)을 전부 `static final`로 고정하지 않는다
-
-### 범위 밖은 손대지 않는다
-
-Issue의 **비목표**가 판정 기준이다. 구현 중 발견한 개선점은 고치지 말고 기록한다.
+기존 Design Freeze 댓글이 있으면 현재 계정이 작성한 최신 댓글이고 후속 논의가 없어 안전할 때
+편집한다. 그렇지 않으면 삭제하지 않고 다음 제목의 댓글 하나로 대체한다.
 
 ```markdown
-## Follow-up
-- 발견한 내용 / 제외한 이유 / 예상 영향 / 별도 Issue 필요 여부
+## 구현 계약 및 Design Freeze v2
+
+> 이 댓글이 이전 Design Freeze 댓글을 대체한다.
 ```
 
-별도 Issue는 **독립 구현 가능 + 구체적 완료 조건 + 실제 결함이나 명확한 후속 요구**일 때만 만든다(`Follow-up of #<N>` 포함). 스타일 취향이나 막연한 확장 아이디어로 Issue 목록을 오염시키지 않는다. 나머지는 PR 본문 Follow-up 절에만 적는다.
+중복 대체 댓글을 만들지 않는다. 댓글을 기록한 뒤 형식적인 승인을 기다리지 않고 구현한다.
+
+### Freeze를 다시 여는 조건
+
+현재 설계로 완료 조건을 충족할 수 없거나 계약 충돌, 실제 테스트 결함, 데이터 무결성·동시성·
+보안·트랜잭션 경계 문제가 발견됐을 때만 다시 연다. 더 예쁜 구조나 미래 확장 가능성은 근거가
+아니다.
+
+실제 범위 결정이 바뀌면 Issue에 `Design Change` 댓글로 변경 내용·근거·영향·검증을 남긴다.
 
 ---
 
-## ④ 검증
+## ⑤ worktree
+
+### 일반 구현
+
+브랜치는 `feature/issue-<N>-<slug>` 또는 `fix/issue-<N>-<slug>`다. 최신
+`origin/<기본 브랜치>`에서 만들고 이전 기능 브랜치 위에 쌓지 않는다.
+
+```bash
+git worktree list
+mkdir -p ../football-trading-worktrees
+git worktree add -b <새-branch> <worktree-path> <선점한-base-SHA>
+git worktree add <worktree-path> <이미-존재하는-미연결-branch>
+git -C <worktree-path> rev-parse --show-toplevel
+git -C <worktree-path> branch --show-current
+git -C <worktree-path> rev-parse HEAD
+```
+
+Claude Code에 native worktree 도구가 있으면 먼저 사용하고, 위 명령은 fallback이다. 이미 branch가
+연결된 worktree가 있으면 그 경로를 재사용하고 새 명령을 실행하지 않는다. branch만 있고 연결된
+worktree가 없으면 두 번째 명령, branch도 없으면 첫 번째 명령을 사용한다. 새 branch의 HEAD는
+선점한 base SHA와 같아야 하며, 기존 branch는 보존된 commit을 포함한 자기 HEAD를 사용한다.
+
+생성·재사용 직후 실제 절대 worktree 경로와 branch를 검증하고, 공용 잠금 아래 자기 token의
+`PENDING`만 그 경로로 교체한다. 이후 파일 수정과 명령은 그 worktree에서만 수행한다.
+
+### merge 후 BLOCKING 복구
+
+다음 Issue의 미커밋 작업이 있다면 현재 worktree를 commit·stash·reset·삭제하지 않고 그대로
+일시 정지한다. ③에서 옮긴 NORMAL claim은 그대로 보존하고, 최신 `origin/main`의 원 Issue를 위한
+RECOVERY claim으로만 진행한다. recovery는 별도 owner token, `fix/issue-<N>-recovery` branch,
+worktree를 사용한다.
+
+복구 PR도 일반 PR과 같은 품질 게이트, Ready PR, 필수 `build`, 사용자 merge를 거친다. merge
+후 기존 WIP가 새 기준에서 유효한지 다시 검토하고 필요하면 수정하거나 폐기한다.
+
+무관한 미커밋 변경을 되돌리거나 삭제하지 않는다. `git add .`로 무분별하게 stage하지 않는다.
+
+---
+
+## ⑥ 테스트 우선 구현
+
+테스트를 먼저 쓰고 기대한 이유로 실패하는지 확인한 뒤 최소 구현으로 통과시킨다. 작은 수직
+단위로 완성하며 레이어별 뼈대만 남기지 않는다.
+
+시작 전에 다음을 읽는다.
+
+- `CLAUDE.md`의 구현 규칙
+- `docs/api/README.md` 공통 규약
+- `.claude/agents/code-reviewer.md` 체크리스트
+
+### 캘리브레이션
+
+튜닝 값 미확정만으로 멈추지 않는다. Issue에 이번 입력값·임시 근거·조정 경계를 남기고 정책
+객체나 설정 경계 한 곳에 둔다. 제품 기본값이 확정되지 않았으면 임의의 운영 기본값을 만들지 않는다.
+
+### 범위 밖 발견
+
+Issue의 Non-goals를 기준으로 판단한다. 독립 구현 가능하고 완료 조건이 구체적인 실제 후속 작업만
+Issue로 만들며, 스타일 취향이나 막연한 확장 아이디어는 PR의 `Follow-up`에만 남긴다.
+
+---
+
+## ⑦ 품질 게이트와 Finding Triage
 
 좁은 것부터 실행한다.
 
-```
+```text
 1. 바꾼 테스트 클래스
 2. 해당 모듈 테스트
-3. ./gradlew build          — 컴파일 + 테스트 + 패키징
+3. ./gradlew build
+4. 자체 리뷰
+5. code-reviewer
+6. 문서를 바꿨을 때만 docs-auditor
 ```
 
-실패하면 원인을 분석하고(테스트 오류인지 구현 오류인지 구분) 고친 뒤 같은 테스트 → 회귀 → 전체 순으로 다시 돌린다. **테스트가 실패한 상태로 완료를 선언하지 않는다.** 실행하지 못한 것이 있으면 명령·오류 메시지·미검증 범위를 적는다. **돌리지 않은 테스트를 "통과했다"고 보고하지 않는다.**
+`code-reviewer`는 D0~D9·ADR 준수 검사다. 통과가 일반 결함이 없음을 뜻하지 않으므로 자체
+리뷰를 생략하지 않는다.
 
-### 자체 리뷰
+구현 중 장기 제품·도메인 규칙, 아키텍처 결정, 외부 API 계약이 달라졌는지 판정한다. 달라졌다면
+관련 스펙·ADR·OpenAPI를 같은 PR에서 갱신한다. 문서를 실제로 바꿨을 때만 `docs-auditor`를
+수행한다.
 
-`code-reviewer` 서브에이전트를 호출한다(읽기 전용, 스펙 D0~D9·ADR 준수 검사). 문서를 고쳤으면 `docs-auditor`도 호출한다.
+보고서의 근거를 직접 확인한다.
 
-보고서를 맹목 수용하지 않는다 — 근거 인용을 직접 확인한 뒤 반영한다.
+- 실제 결함: 수정하고 좁은 테스트부터 전체 build까지 다시 실행한다.
+- 판단이 갈리는 항목: PR의 `구현자가 확인받고 싶은 판단`에 남긴다.
+- `FOLLOW_UP`: 현재 범위를 키우지 않는다.
+- 해소되지 않은 `BLOCKING`: Ready PR을 만들지 않는다.
 
-- **명백한 스펙·계약 위반** → ③으로 돌아가 고치고 재검증
-- **판단이 갈리는 것** → 고치지 말고 PR 본문 `## 리뷰 포인트 > ### 구현자가 확인받고 싶은 판단`에 적는다
+현재 Issue에서 바로 고칠 수 있는 `BLOCKING`은 같은 선점·branch/worktree에서 수정·재검증한다.
+이는 새 구현이 아닌 pre-merge remediation이므로 실효 상태가 `FROZEN`이어도 해당 결함 해소
+범위에서만 진행할 수 있다. 범위나 고위험 결정 때문에 해소할 수 없다면 `현재 배치`를
+`FROZEN`으로 바꾸고 Issue 댓글에 근거를 남긴 뒤 중단한다. Codex 소유인 `발견 사항` 절은
+수정하지 않는다.
+
+실패한 테스트를 통과했다고 보고하지 않는다. 실행하지 못한 명령·오류·미검증 범위를 그대로 남긴다.
 
 ---
 
-## ⑤ 인계 — 커밋 → push → Draft PR
+## ⑧ 커밋·push·Ready PR
 
 ### 커밋
 
-관련 파일만 stage한다. 사용자의 무관한 미커밋 변경을 포함하지 않는다. 논리적 단위로 나누고, 테스트가 깨진 중간 상태를 최종 커밋으로 남기지 않는다. `reset --hard`·강제 push·공유된 커밋 재작성을 하지 않는다.
+stage·commit 직전에 `REVIEW-QUEUE.md`를 다시 읽고 실효 상태, `BLOCKING`, 자기 `진행 중 구현`
+mode·owner token·branch·worktree 선점을 재확인한다.
+다른 Issue의 `BLOCKING`이면 현재 작업을 commit하지 않고 중단한다. 현재 Issue를 가리키는
+`BLOCKING`이면 그 결함을 직접 해소하는 remediation commit만 허용하고 새 기능 진도를 섞지 않는다.
+자기 token과 현재 worktree가 일치하지 않으면 stage·commit하지 않는다. 기존 OPEN PR 재개는
+그 PR head branch와 현재 worktree의 일치가 선점을 대신한다.
+
+관련 파일만 stage하고 사용자의 무관한 변경을 포함하지 않는다. 테스트가 깨진 중간 상태를 최종
+커밋으로 남기지 않는다. `reset --hard`, 강제 push, 공유된 커밋 재작성은 하지 않는다.
 
 메시지 규약:
-- 본문은 **"무엇이 바뀌었나" 불릿만.** 왜 하는지를 산문으로 앞에 붙이지 않는다
-- 본문 문장 끝에 **마침표를 붙이지 않는다**
-- **Claude 관련 문구를 넣지 않는다** (`Co-Authored-By`, `Generated with` 등). PR 본문도 같다
+
+- 본문은 무엇이 바뀌었는지 불릿만 쓴다.
+- 본문 문장 끝에 마침표를 붙이지 않는다.
+- 커밋·PR 본문에 Claude 관련 문구를 넣지 않는다.
 
 ### push
 
-이 머신은 자격증명 조회에서 멈춘 이력이 있다. **먼저 읽기 프로브로 판별한다.**
+먼저 읽기 프로브를 실행한다.
 
-```
-GIT_TERMINAL_PROMPT=0 git ls-remote origin HEAD     # Bash 도구 timeout 15000ms
-```
-
-셸 `timeout` 바이너리가 없으므로 **Bash 도구의 `timeout` 파라미터(ms)**로만 끊는다.
-
-- 프로브 성공 → `git push -u origin <브랜치>` (timeout 60000ms)
-- 프로브 실패·무응답 → **push를 시도하지 않고** 사용자에게 그대로 복사 가능한 명령을 넘긴다
-
-```
-git push -u origin <브랜치>
-gh pr create --draft --base <기본브랜치> --title "<제목>" --body-file <경로>
+```bash
+GIT_TERMINAL_PROMPT=0 git ls-remote origin HEAD
 ```
 
-### Draft PR
+프로브 성공 시 현재 브랜치를 push한다. 실패·무응답이면 push를 반복하지 않고 사용자가 실행할
+명령을 전달한다.
 
-- 같은 브랜치에 열린 PR이 있으면 **새로 만들지 않고 본문을 갱신**한다
-- `--draft`로 만든다. **Ready for review로 자동 전환하지 않는다**
-- `--base`는 고정 `main`이 아니라 **위에서 확인한 기본 브랜치**를 쓴다
-- 본문에 **`Closes #<N>`**을 포함한다
-- **merge하지 않는다. Issue를 직접 close하지 않는다**
-- CI 상태를 **한 번** 확인하고 보고한다. pending이면 반복 polling하지 않는다
+### Ready PR
 
-본문은 `.github/pull_request_template.md`의 절 구조를 따르고 실제 결과로 채운다. **존댓말로 쓴다**(기존 PR 문체).
+- 같은 브랜치의 열린 PR이 있으면 새로 만들지 않고 본문을 갱신한다.
+- `--draft` 없이 Ready PR을 만든다.
+- 기본 브랜치를 조회해 `--base`로 사용한다.
+- Issue 작업이면 `Closes #<N>`을 포함한다.
+- Batch ID는 PR 본문에 넣지 않는다.
+- merge하거나 Issue를 직접 닫지 않는다.
+- CI 상태는 한 번 확인하고 pending이면 반복 polling하지 않는다.
 
-`## 테스트`에는 전체 로그를 붙이지 않는다.
+PR 본문은 템플릿을 따르며 다음을 실제 내용으로 채운다.
 
-```markdown
-| 명령 | 결과 |
-|---|---|
-| `./gradlew build` | 통과 |
-- GitHub Actions Build: 통과
-- 미검증: 없음
-```
+- 실제 클래스·파일·포트 구조와 세부 인터페이스 선택
+- Design Freeze에서 고정하지 않은 구현 판단과 근거
+- 고려했다가 버린 대안
+- Design Freeze와 실제 구현의 차이
+- 실행한 테스트와 미검증 범위
+- 사용자가 최종 판단할 리뷰 포인트
+- 범위 밖 Follow-up
 
-`## 리뷰 포인트`는 두 칸이다.
+PR 생성 또는 갱신 직전에 공용 잠금을 얻고 `REVIEW-QUEUE.md`를 다시 읽어 `BLOCKING`, 실효 상태,
+자기 mode·owner token·branch·worktree 또는 기존 OPEN PR 연결을 다시 검증한다. 다른 `BLOCKING`이나
+선점 상실이 생겼으면 잠금을 해제하고 Ready PR을 만들거나 갱신하지 않는다.
 
-- **`### 구현자가 확인받고 싶은 판단`** → **채운다.** Design Freeze 이후 갈렸던 판단, 확신이 낮은 곳, ④에서 "판단이 갈린다"고 넘긴 것. 없으면 "없음"
-- **`### 리뷰 메모`** → **비운다.** 무엇을 판단해 달라는지는 사용자가 `/learn` 세션에서 정한다
+검증을 통과하면 잠금을 유지한 채 PR을 생성하거나 갱신하고, 성공한 경우 Claude Code 소유인
+`구현 산출물`에 Issue와 PR 번호를 추가하면서 `진행 중 구현`을 `없음`으로 바꾸는 한 번의 작은
+패치를 적용한 뒤 잠금을 해제한다. RECOVERY 중 `일시 정지 구현`은 그대로 둔다. 원격 작업이나 큐
+패치가 실패하면 잠금을 해제하고 같은 PR을 중복 생성하지 않는다. 일반 구현은 `#N`,
+복구는 `#N (RECOVERY)`, 안정화는 `#N (STABILIZATION)`으로 Issue 칸에 표시하며 뒤의 두 종류는
+PR 3개 상한에 세지 않는다. Codex 소유인 `학습 상태`를 대신 만들지 않는다.
+
+PR은 생성됐지만 큐 패치가 실패하면 반복 생성하지 않는다. 열린 PR이 구현 레인을 막으므로
+`/batch sync`가 산출물과 선점을 복구할 때까지 상태를 보고하고 중단한다.
+
+Ready PR은 merge를 기다리지 않고 즉시 Codex 학습 후보가 된다. 학습 레인이 비어 있으면 바로
+시작하고, 다른 PR을 학습 중이면 `PENDING`으로 둔다. 학습 완료와 멘토 리뷰는 일반 PR의 merge
+조건이 아니며, 필수 `build` 통과와 알려진 `BLOCKING` 부재를 확인한 사용자가 merge한다.
+
+열린 PR에 commit이 추가되면 같은 Issue 세션·브랜치에서 품질 게이트를 다시 통과하고 PR 본문을
+갱신한다. 배치 슬롯은 추가하지 않는다.
 
 ---
 
-## ⑥ 정지 조건
+## ⑨ Dry run
 
-아래에서는 즉시 멈추고 보고한다. 추측으로 진행하지 않는다.
+`--dry-run`은 조회와 출력만 수행한다.
 
-| 조건 | 왜 |
-|---|---|
-| **권위 있는 계약끼리 충돌** | 스펙·ADR·`openapi.yaml` 중 어느 것을 따라야 할지 확정할 수 없다 |
-| **계약 준수에 Issue 범위 밖 변경이 필요** | 계약 자체를 바꿔야 한다 — 현재 범위로 완료할 수 없다 |
-| **Issue 범위로 구현 불가** | 선행 결정이 없다. ADR을 스스로 확정하지 않는다 |
-| **미리뷰 Draft PR 존재** | ①의 게이트 |
-| **고위험 결정** | 아래 목록 |
-| **gh 인증·권한 실패** | Issue를 추측하거나 없는 번호를 만들지 않는다. GitHub 작업이 성공했다고 거짓 보고하지 않는다 |
-
-**고위험 목록** — 공개 API 호환성 파괴 · DB 스키마·마이그레이션 · 기존 데이터 손실 가능성 · 인증·인가 정책 · 멀티모듈 경계 · 거래·동시성 모델 · 새 외부 의존성 · Java/Spring Boot/Gradle 주요 버전 · 기존 ADR을 대체하는 결정 · 사용자만 아는 비즈니스 정책이 없으면 구현 불가
-
-질문이 여러 개면 **한 메시지로 묶는다.**
-
-```markdown
-## 구현을 막는 결정
-### 확인된 사실
-### 결정이 필요한 항목
-### 선택지
-### 추천안과 이유
-### 답이 없을 때 적용할 기본안
+```text
+입력 판별
+→ Issue·PR·branch/worktree 조회
+→ REVIEW-QUEUE 스키마·배치 게이트 판정
+→ 예상 Design Freeze
+→ 예상 변경 책임과 검증 명령
+→ 종료
 ```
+
+Issue 생성·댓글·파일 수정·브랜치/worktree 생성·commit·push·PR 생성·큐 변경을 하지 않는다.
 
 ---
 
-## ⑦ Dry run
+## ⑩ 고위험 정지 조건
 
-`--dry-run`이면 **조회와 출력만** 한다.
+다음은 구현 전에 멈추고 사용자의 결정을 받는다.
 
-```
-입력 판별 → Issue·PR·브랜치 조회 → 예상 Design Freeze → 예상 변경 파일 → 검증 명령 → 종료
-```
+- 권위 있는 계약끼리 충돌
+- 공개 API 호환성 변경
+- DB 스키마·마이그레이션 또는 데이터 손실 가능성
+- 인증·인가 정책
+- 멀티모듈 경계
+- 거래·트랜잭션·동시성 모델
+- 새 외부 의존성 또는 주요 Java·Spring Boot·Gradle 버전
+- 기존 ADR 대체
+- Issue 범위로 구현할 수 없는 제품 정책 누락
+- GitHub 인증·권한 실패
 
-**하지 않는 것:** Issue 생성 · 댓글 · 파일 수정 · 브랜치 생성 · commit · push · PR 생성
+질문이 여러 개면 확인된 사실·필요한 결정·선택지·추천안을 한 메시지로 묶는다.
 
 ---
 
 ## 하지 않는 것
 
-- **merge** — 사용자의 권한이다. `gh pr merge`를 호출하지 않는다
-- **ADR 확정** — 초안 작성은 허용하지만 확정은 사용자가 한다
-- **Issue 범위 밖 리팩터링**
-- **학습 노트 작성** — `/learn`의 몫이다. 사용자가 리뷰하기 전에 노트를 쓰면 "판단과 버린 대안"이 내 작업 로그가 되어 학습 기록이 아니게 된다
-- **기존 Issue 본문 전면 교체** — 보완은 댓글로
-
----
-
-## 참고 — 승인과 권한 프롬프트는 다르다
-
-이 스킬은 **계획 승인을 요청하지 않는다.** 다만 `git push`·`gh issue create`·`gh pr create`는 권한 설정상 **도구 권한 프롬프트**가 뜰 수 있다. 이 둘은 다른 것이다 — 전자는 워크플로가 없앤 왕복이고, 후자는 원격에 접촉한다는 신호다.
+- merge 또는 Issue 직접 close
+- ADR을 사용자 대신 확정
+- 선택되지 않은 Issue 구현
+- Issue 범위 밖 리팩터링
+- 구현 세션에서 학습 노트 작성
+- 기존 Issue 본문 전면 교체
+- 다른 도구 소유 큐 절 수정
