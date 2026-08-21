@@ -6,7 +6,9 @@ K리그 선수를 자산으로 사고파는 가상 포인트 판타지 주식 �
 ## 작업 시작 전 반드시
 
 **`docs/workflow.md`를 읽는다.** skill 사용 지도, 한 기능 사이클, 세션 분할, 서브에이전트 규칙이 거기 있다.
-핵심만: **초안은 위임하고, 최종 판단은 위임하지 않는다** — 구현·테스트는 `/issue-implement`가 Draft PR까지, merge는 사람이.
+핵심만: **초안은 위임하고, 최종 판단은 위임하지 않는다** — `/batch`가 작업을 고르고,
+`/issue-implement`가 Ready PR까지 구현하며, merge는 사람이 한다. 학습은 Codex에서 병렬로 진행하되
+배치 종료 전에는 최종 diff까지 이해한다.
 
 규칙 원본은 `docs/`에 있고 **이 파일에 복사하지 않는다** — 두 곳에 있으면 한쪽만 고쳐서 썩는다.
 
@@ -17,7 +19,7 @@ K리그 선수를 자산으로 사고파는 가상 포인트 판타지 주식 �
 | 제품·경제·게임 규칙 (D0~D9) | `docs/superpowers/specs/2026-07-29-kleague-market-design.md` |
 | 아키텍처 결정 | `docs/adr/` — 불변, 결정에 영향 없는 오기 정정만 허용 |
 | API 계약 | `docs/api/openapi.yaml`(기계) + `docs/api/README.md`(사람) — **계약이 진실이고 코드가 따라간다.** 코드가 계약을 아직 구현 안 한 건 충돌이 아니다(그걸 구현하는 게 일이다). **계약끼리 충돌**하거나 **계약 자체를 바꿔야** 하면 임의로 정하지 말고 보고한다 |
-| 작업 방식 | `docs/workflow.md`(원칙·사이클) + `.claude/skills/issue-implement/SKILL.md`(구현 절차) |
+| 작업 방식 | `docs/workflow.md`(원칙·사이클) + `.claude/skills/batch/SKILL.md`(배치) + `.claude/skills/issue-implement/SKILL.md`(구현) |
 
 `docs/`는 Obsidian 보관함이다. 노트 간 연결은 `[[노트 이름]]` 위키 링크로 쓴다.
 
@@ -47,8 +49,8 @@ Gradle 멀티모듈, **Java 21**. 빌드·테스트 명령은 실제로 돌릴 �
 
 ## 커밋
 
-- **`/issue-implement` 안에서는 승인 없이 커밋·push·Draft PR.** 그 밖에서는 diff와 메시지를 보여주고 승인받는다
-- 본문은 **"무엇이 바뀌었나" 불릿만**. 왜 하는지를 산문으로 앞에 붙이지 않는다
+- **`/issue-implement` 안에서는 승인 없이 커밋·push·Ready PR.** 그 밖에서는 diff와 메시지를 보여주고 승인받는다
+- **커밋 메시지 본문**은 "무엇이 바뀌었나" 불릿만 쓴다. PR의 구현 판단·근거·기각 대안은 템플릿에 따라 기록한다
 - 본문 문장 끝에 **마침표를 붙이지 않는다**
 - 커밋·**PR 본문**에 **Claude 관련 문구를 넣지 않는다** (`Co-Authored-By`, `Generated with` 등)
 
