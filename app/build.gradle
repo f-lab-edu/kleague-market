@@ -4,6 +4,8 @@ plugins {
     id 'io.spring.dependency-management' version '1.1.7'
 }
 
+// 버전은 모두 Spring Boot BOM이 관리한다 — 여기에 숫자를 적으면 BOM과 조용히 어긋난다.
+// DB 의존성은 app에만 둔다: domain은 Spring도 DB도 모른다 (ADR-0001).
 dependencies {
     implementation project(':domain')
     implementation project(':kleague-client')
@@ -11,5 +13,17 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
 
+    // 명시적 SQL로만 접근한다 — JPA·Spring Data JDBC는 도입하지 않는다 (ADR-0009)
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    // flyway-core는 11부터 DB별 지원을 분리해서, PostgreSQL 모듈이 없으면 실행 시점에 방언을 못 찾는다
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    // driver는 컴파일 시점에 참조하지 않고 런타임에만 필요하다
+    runtimeOnly 'org.postgresql:postgresql'
+
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // 실제 PostgreSQL로만 검증한다 — H2 호환 모드는 제약·타입·잠금 동작이 달라 검증 목적을 무효화한다
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    testImplementation 'org.testcontainers:junit-jupiter'
+    testImplementation 'org.testcontainers:postgresql'
 }
