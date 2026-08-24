@@ -9,7 +9,6 @@ import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -56,12 +55,6 @@ class OrderSchemaPostgresTest {
             INSERT INTO orders (order_id, user_id, player_id, side, quantity, limit_price, created_at)
             VALUES (:order_id, :user_id, :player_id, :side, :quantity, :limit_price, :created_at)
             """;
-
-    /** 클래스 전체가 한 컨테이너를 공유하므로 앞 테스트가 남긴 행을 지운다 — 테스트 전용 정리다. */
-    @BeforeEach
-    void 남은_행을_지운다() {
-        jdbc.getJdbcTemplate().execute("DELETE FROM orders");
-    }
 
     @Test
     void 빈_DB에_Flyway_V1이_적용되어_orders가_생성된다() {
@@ -158,9 +151,11 @@ class OrderSchemaPostgresTest {
             jdbc.update(INSERT, 위반하는_주문);
         })).isInstanceOf(DataIntegrityViolationException.class);
 
-        // 트랜잭션 밖의 새 조회로 확인한다 — 같은 트랜잭션 안에서 읽으면 롤백 여부를 알 수 없다
+        // 트랜잭션 밖의 새 조회로 확인한다 — 같은 트랜잭션 안에서 읽으면 롤백 여부를 알 수 없다.
+        // 테이블 전체가 아니라 이 주문만 센다 — orders를 비우려면 불변 테이블을 DELETE해야 한다
         assertThat(jdbc.queryForObject(
-                "SELECT count(*) FROM orders", Map.of(), Long.class)).isZero();
+                "SELECT count(*) FROM orders WHERE order_id = :order_id",
+                Map.of("order_id", 살아남으면_안_되는_주문), Long.class)).isZero();
     }
 
     /** 제약을 하나씩 깨보려면 나머지 컬럼이 모두 유효한 기준 주문이 필요하다. */
