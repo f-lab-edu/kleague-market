@@ -11,7 +11,7 @@ services:
       # 로컬 개발 전용 비밀번호다. 운영 자격 증명은 이 파일에 두지 않는다
       POSTGRES_PASSWORD: kleague
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     healthcheck:
       # pg_isready는 접속 가능 여부만 본다 — 컨테이너가 떴다는 것과 DB가 받을 준비가 됐다는 것은 다르다
       test: ["CMD-SHELL", "pg_isready -U kleague -d kleague"]
