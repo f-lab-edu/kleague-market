@@ -20,8 +20,14 @@ import org.springframework.test.web.servlet.MockMvc;
 
 /**
  * 주문 API가 docs/api/openapi.yaml 계약대로 응답하는지 검증한다.
+ *
+ * <p>이 테스트는 DB와 무관한 고정 응답 계약 테스트다. classpath에 JDBC·Flyway가 올라온 뒤로는
+ * DataSource 설정이 없으면 컨텍스트 기동 자체가 실패하므로, 두 자동 설정을 여기서만 제외한다.
+ * 실제 DB 검증은 OrderSchemaPostgresTest가 담당하며 그쪽과 전역 설정에는 이 제외를 적용하지 않는다.
  */
-@SpringBootTest
+@SpringBootTest(properties = "spring.autoconfigure.exclude="
+        + "org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration,"
+        + "org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration")
 @AutoConfigureMockMvc
 class OrderApiContractTest {
 

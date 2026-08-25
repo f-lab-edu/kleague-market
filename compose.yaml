@@ -1,0 +1,25 @@
+# 로컬 개발·수동 검증용 PostgreSQL 한 대. Docker는 PostgreSQL 선택의 이유가 아니라
+# 선택한 버전을 그대로 실행·검증하는 수단이다 (ADR-0009). 운영 배포 방식이 아니다.
+#
+# 자동 테스트는 이 Compose가 아니라 Testcontainers가 같은 이미지로 따로 띄운다.
+services:
+  postgres:
+    image: postgres:17.11-alpine3.24
+    environment:
+      POSTGRES_DB: kleague
+      POSTGRES_USER: kleague
+      # 로컬 개발 전용 비밀번호다. 운영 자격 증명은 이 파일에 두지 않는다
+      POSTGRES_PASSWORD: kleague
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      # pg_isready는 접속 가능 여부만 본다 — 컨테이너가 떴다는 것과 DB가 받을 준비가 됐다는 것은 다르다
+      test: ["CMD-SHELL", "pg_isready -U kleague -d kleague"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+volumes:
+  postgres-data:

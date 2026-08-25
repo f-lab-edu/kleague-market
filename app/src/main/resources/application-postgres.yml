@@ -1,0 +1,8 @@
+# 로컬 개발용 PostgreSQL 프로필. 기본 프로필에는 datasource 설정이 없으므로 앱을 직접 띄울 때는
+# --spring.profiles.active=postgres 가 필요하다. 기본값은 루트 compose.yaml과 일치시키고,
+# 다른 환경은 값을 고치지 않고 환경 변수로만 덮어쓴다.
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/kleague}
+    username: ${DB_USERNAME:kleague}
+    password: ${DB_PASSWORD:kleague}
