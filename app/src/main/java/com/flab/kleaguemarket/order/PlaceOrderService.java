@@ -1,6 +1,5 @@
 package com.flab.kleaguemarket.order;
 
-import com.flab.kleaguemarket.domain.order.Fill;
 import com.flab.kleaguemarket.domain.order.Order;
 import com.flab.kleaguemarket.domain.order.OrderRejectedException;
 import com.flab.kleaguemarket.domain.order.OrderRejection;
@@ -11,7 +10,6 @@ import com.flab.kleaguemarket.domain.order.port.OrderRepository;
 import com.flab.kleaguemarket.domain.order.port.PlayerMarket;
 import com.flab.kleaguemarket.domain.order.port.TraderAccount;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -60,8 +58,9 @@ public class PlaceOrderService {
 
         rejectIfUnacceptable(order);
 
-        List<Fill> fills = matchingEngine.match(order);
-        Order settled = order.withFills(fills);
+        // 체결 목록(MatchResult.trades)은 정산·원장의 입력이라 그 단계가 생길 때 쓴다.
+        // 지금 이 흐름이 책임지는 것은 체결·취소가 반영된 주문을 손실 없이 저장·반환하는 것뿐이다
+        Order settled = matchingEngine.match(order).taker();
         orderRepository.save(settled);
         return settled;
     }
