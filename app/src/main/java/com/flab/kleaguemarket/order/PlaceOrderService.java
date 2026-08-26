@@ -58,8 +58,6 @@ public class PlaceOrderService {
 
         rejectIfUnacceptable(order);
 
-        // 체결 목록(MatchResult.trades)은 정산·원장의 입력이라 그 단계가 생길 때 쓴다.
-        // 지금 이 흐름이 책임지는 것은 체결·취소가 반영된 주문을 손실 없이 저장·반환하는 것뿐이다
         Order settled = matchingEngine.match(order).taker();
         orderRepository.save(settled);
         return settled;

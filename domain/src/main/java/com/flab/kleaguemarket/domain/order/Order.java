@@ -6,15 +6,9 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 지정가 주문 한 건.
- *
- * <p>filledQuantity·remainingQuantity·avgFillPrice·status를 필드로 갖지 않고 fills에서 파생시킨다 —
- * 저장값으로 두면 fills와 어긋날 수 있는 상태가 생긴다 (ADR-0006의 "로그에서 파생" 원칙,
- * 설계 스펙 D4의 "언제나 원본 fills에서 재계산한다").
- *
- * <p>다만 취소만은 fills에서 파생시킬 수 없다 — "체결되지 않은 잔량이 왜 사라졌는가"는 체결 기록에
- * 남지 않는다. 그래서 cancelledQuantity만 별도 값으로 두고, 모든 인스턴스가
- * {@code 주문 수량 = 체결 수량 + 활성 잔량 + 취소 수량}을 만족하도록 생성 시점에 강제한다.
+ * 지정가 주문 한 건. 체결 수량·활성 잔량·평균 체결가·상태는 fills에서 파생하고,
+ * 취소 수량만 별도 저장한다.
+ * {@code 주문 수량 = 체결 수량 + 활성 잔량 + 취소 수량}을 생성 시점에 보장한다.
  *
  * @param quantity          최초 주문 수량. 체결돼도 줄지 않는다 — 줄어드는 것은 remainingQuantity다
  * @param limitPrice        한도가. 매수는 최대 지불, 매도는 최소 수취 (설계 스펙 D4)
@@ -43,14 +37,12 @@ public record Order(
             throw new IllegalArgumentException("취소 수량은 음수일 수 없습니다: " + cancelledQuantity);
         }
         fills = List.copyOf(fills);
-        // 오버플로가 나면 조용히 음수가 되어 아래 두 검사를 모두 통과해 버린다 — 예외로 끊는다
         int settled = Math.addExact(sumQuantity(fills), cancelledQuantity);
         if (settled > quantity) {
             throw new IllegalArgumentException(
                     "체결과 취소의 합이 주문 수량을 넘을 수 없습니다: " + settled + " > " + quantity);
         }
-        // 취소는 "잔량 전부"라 부분 취소가 없다. 이걸 강제하지 않으면 CANCELLED로 종료된 주문에
-        // 활성 잔량이 남아 있는 모순 상태(10주 중 체결 3 · 취소 2 · 잔량 5)가 만들어진다
+        // 취소는 활성 잔량 전부에만 허용한다
         if (cancelledQuantity > 0 && settled != quantity) {
             throw new IllegalArgumentException(
                     "취소된 주문에는 활성 잔량이 남을 수 없습니다: 체결 " + sumQuantity(fills)
@@ -67,7 +59,6 @@ public record Order(
         }
     }
 
-    /** 아직 취소가 없는 주문. 취소는 종료 경로에서만 생기므로 대부분의 호출부는 이 생성자를 쓴다. */
     public Order(UUID orderId, UUID userId, long playerId, Side side,
                  int quantity, long limitPrice, List<Fill> fills, Instant createdAt) {
         this(orderId, userId, playerId, side, quantity, limitPrice, fills, 0, createdAt);
@@ -79,11 +70,7 @@ public record Order(
         return new Order(orderId, userId, playerId, side, quantity, limitPrice, List.of(), createdAt);
     }
 
-    /**
-     * 기존 체결에 새 체결을 <b>덧붙인</b> 주문. 대체하는 짝(withFills)을 두지 않는 이유는,
-     * 한 주문이 여러 번에 걸쳐 체결될 때(maker가 연속으로 잡히는 경우) 대체 의미를 잘못 쓰면
-     * 과거 체결이 조용히 사라지고 정산이 어긋나기 때문이다.
-     */
+    /** 기존 체결에 새 체결을 덧붙인다. */
     public Order withAdditionalFills(List<Fill> matched) {
         if (matched.isEmpty()) {
             return this;
@@ -94,11 +81,7 @@ public record Order(
         return new Order(orderId, userId, playerId, side, quantity, limitPrice, merged, cancelledQuantity, createdAt);
     }
 
-    /**
-     * 활성 잔량 전부를 취소로 옮긴 주문. 취소는 언제나 잔량 전부이며 부분 취소는 없다 (설계 스펙 D4).
-     * 활성 잔량이 이미 0이면 자기 자신을 돌려준다 — 전량 체결된 주문이 CANCELLED로 뒤집히면
-     * 정산이 끝난 주문이 취소된 것으로 보인다.
-     */
+    /** 활성 잔량 전부를 취소한다. */
     public Order cancelRemaining() {
         int active = remainingQuantity();
         if (active == 0) {
@@ -121,10 +104,6 @@ public record Order(
         return quantity - filledQuantity() - cancelledQuantity;
     }
 
-    /**
-     * CANCELLED를 먼저 보지만 FILLED와 겹칠 일은 없다 — 생성자가 {@code 취소 > 0}이면
-     * {@code 체결 + 취소 = 주문 수량}을 강제하므로 취소가 있으면 체결은 반드시 주문 수량보다 작다.
-     */
     public OrderStatus status() {
         if (cancelledQuantity > 0) {
             return OrderStatus.CANCELLED;

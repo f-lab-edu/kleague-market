@@ -68,16 +68,7 @@ class PlaceOrderServiceTest {
                 playerMarket, traderAccount, matchingEngine, orderRepository, new TradingPolicy(HOLDING_CAP));
     }
 
-    /**
-     * 넘겨받은 주문에 주어진 체결을 반영해 돌려주는 매칭 엔진 스텁.
-     *
-     * <p>고정된 MatchResult를 돌려주지 않는 이유: 주문 id는 서비스가 매칭 직전에 발급하므로
-     * 테스트가 미리 알 수 없다. 인자를 받아 만들어야 "매칭에 넘긴 주문"과 "매칭이 돌려준 주문"이
-     * 같은 주문이라는 전제가 성립한다.
-     *
-     * <p>maker 주문 ID를 채운 trades까지 만들어 두는 것은 place()가 그것을 흘려버리지 않는지
-     * 보기 위해서다 — 지금은 taker만 쓰지만 결과에서 잘못된 값을 꺼내면 여기서 드러난다.
-     */
+    /** 서비스가 생성한 주문 ID를 보존하려고 호출 인자로 결과를 만든다. */
     private static Answer<MatchResult> 체결시킨다(List<Fill> fills) {
         return invocation -> {
             Order requested = invocation.getArgument(0);

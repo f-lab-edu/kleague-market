@@ -124,7 +124,6 @@ class OrderTest {
 
     @Test
     void 잔량이_취소되면_CANCELLED이고_활성_잔량은_0이_된다() {
-        // 설계 스펙 D4의 "부분체결 직후 취소" 예시 — 10주 중 6주 체결 후 취소
         Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 100L,
                 List.of(new Fill(100L, 6)), CREATED_AT).cancelRemaining();
 
@@ -146,7 +145,6 @@ class OrderTest {
 
     @Test
     void 전량_체결된_주문을_취소해도_FILLED_그대로다() {
-        // 활성 잔량이 0이라 취소할 것이 없다. CANCELLED로 뒤집히면 이미 정산된 주문이 취소로 보인다
         Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 5, 100L,
                 List.of(new Fill(100L, 5)), CREATED_AT).cancelRemaining();
 
@@ -156,7 +154,6 @@ class OrderTest {
 
     @Test
     void 취소된_주문의_체결_수량과_평균가는_보존된다() {
-        // 미체결·취소 수량은 평균가 분모에 넣지 않는다 (설계 스펙 D4)
         Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 102L,
                 List.of(new Fill(100L, 1), new Fill(101L, 1)), CREATED_AT).cancelRemaining();
 
@@ -166,7 +163,6 @@ class OrderTest {
 
     @Test
     void 취소_수량만큼_최대_필요_현금이_줄어든다() {
-        // 취소는 예약 반환의 근거다 (설계 스펙 D4 에스크로) — 종료된 주문의 예약액은 0이어야 한다
         Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 100L,
                 List.of(new Fill(100L, 6)), CREATED_AT);
 
@@ -176,8 +172,6 @@ class OrderTest {
 
     @Test
     void 일부만_취소되면서_활성_잔량이_남으면_생성에_실패한다() {
-        // 10주 중 3주 체결 + 2주 취소 + 잔량 5는 모순이다. 취소는 "잔량 전부"라 부분 취소가 없는데
-        // 상태는 CANCELLED가 되어 종료된 주문에 활성 잔량 5가 남는다
         assertThrows(IllegalArgumentException.class, () -> new Order(
                 ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 100L,
                 List.of(new Fill(100L, 3)), 2, CREATED_AT));
@@ -192,7 +186,6 @@ class OrderTest {
 
     @Test
     void 추가_체결은_기존_체결_내역에_덧붙는다() {
-        // 대체(replace)면 앞선 3주가 사라져 정산이 어긋난다 — maker가 여러 번 체결될 때 실제로 생긴다
         Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 102L,
                 List.of(new Fill(100L, 3)), CREATED_AT)
                 .withAdditionalFills(List.of(new Fill(101L, 4)));

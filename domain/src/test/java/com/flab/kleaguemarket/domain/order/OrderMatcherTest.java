@@ -7,16 +7,6 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-/**
- * 매칭 규칙만 검증한다 — 누구와·얼마나·얼마에 체결되고, 자기 주문을 만나면 어떻게 되는가 (설계 스펙 D7).
- * 잔고·보유 이동과 영속은 매칭 바깥이라 여기서 다루지 않는다.
- *
- * <p>Spring도 DB도 mock도 쓰지 않는다. 호가창은 이미 정렬된 {@code List<Order>}로 주입되고
- * 매칭은 순수 함수라 입력을 그대로 넣고 결과를 보면 된다 (ADR-0001).
- *
- * <p>호가창의 시각은 리스트 순서와 같은 방향으로 준다. 매칭은 정렬을 신뢰하고 시각을 읽지 않지만,
- * 테스트를 읽는 사람이 "먼저 접수된 주문"을 눈으로 확인할 수 있어야 한다.
- */
 class OrderMatcherTest {
 
     private static final UUID 사용자_A = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
@@ -30,7 +20,6 @@ class OrderMatcherTest {
                 기준시각.plusSeconds(접수순서));
     }
 
-    /** 최초 주문 수량 = 체결 수량 + 활성 잔량 + 취소 수량 (Issue #17 수량 불변조건). */
     private static void 수량_불변조건을_만족한다(Order order) {
         assertEquals(order.quantity(),
                 order.filledQuantity() + order.remainingQuantity() + order.cancelledQuantity(),
@@ -56,7 +45,6 @@ class OrderMatcherTest {
 
     @Test
     void 체결가는_taker가_아니라_maker의_한도가다() {
-        // 매수 한도 102가 매도 한도 100과 만나면 100에 체결된다 — 차액은 taker가 가져간다 (설계 스펙 D4)
         Order 매도 = 주문(사용자_B, Side.SELL, 3, 100L, 1);
         Order 매수 = 주문(사용자_A, Side.BUY, 3, 102L, 2);
 
@@ -74,7 +62,6 @@ class OrderMatcherTest {
 
         MatchResult 결과 = OrderMatcher.match(매수, List.of(먼저_접수, 나중_접수));
 
-        // 가격이 같아 어느 쪽과 체결해도 금액은 같다 — 갈리는 것은 makerOrderId와 수량 배분이다
         assertEquals(List.of(
                 new Trade(먼저_접수.orderId(), 100L, 3),
                 new Trade(나중_접수.orderId(), 100L, 1)), 결과.trades());
@@ -112,7 +99,6 @@ class OrderMatcherTest {
 
     @Test
     void 가격이_교차하지_않으면_체결_없이_OPEN이다() {
-        // 매수 99는 매도 101을 살 수 없다 — 한도가는 교차 여부만 판정한다 (설계 스펙 D4)
         Order 매도 = 주문(사용자_B, Side.SELL, 5, 101L, 1);
         Order 매수 = 주문(사용자_A, Side.BUY, 5, 99L, 2);
 
@@ -137,7 +123,6 @@ class OrderMatcherTest {
 
     @Test
     void 자기_주문을_만나면_선행_체결은_유지하고_잔량_전부를_취소한다() {
-        // Issue #17 예시 그대로 — A 매수 8@100, 호가창 [B 매도 3@100(먼저), A 매도 10@100]
         Order B의_매도 = 주문(사용자_B, Side.SELL, 3, 100L, 1);
         Order A의_매도 = 주문(사용자_A, Side.SELL, 10, 100L, 2);
         Order A의_매수 = 주문(사용자_A, Side.BUY, 8, 100L, 3);
@@ -161,10 +146,8 @@ class OrderMatcherTest {
 
         MatchResult 결과 = OrderMatcher.match(A의_매수, List.of(B의_매도, A의_매도, C의_매도));
 
-        // 자기 주문 뒤의 C와는 체결하지 않는다 — 매칭이 거기서 끝나기 때문이다
         assertEquals(1, 결과.trades().size());
         assertEquals(B의_매도.orderId(), 결과.trades().get(0).makerOrderId());
-        // 호가창의 주문들은 그대로다 (Order가 record라 애초에 불변이지만 계약으로 못박는다)
         assertEquals(List.of(), A의_매도.fills());
         assertEquals(0, A의_매도.cancelledQuantity());
         assertEquals(List.of(), C의_매도.fills());
@@ -172,7 +155,6 @@ class OrderMatcherTest {
 
     @Test
     void 교차하지_않는_자기_주문은_취소를_유발하지_않는다() {
-        // "처음으로 교차 가능한 자기 주문"이 조건이다 — 105는 매수 100과 교차하지 않으므로 그냥 매칭 종료다
         Order A의_매도 = 주문(사용자_A, Side.SELL, 5, 105L, 1);
         Order A의_매수 = 주문(사용자_A, Side.BUY, 5, 100L, 2);
 
@@ -206,7 +188,6 @@ class OrderMatcherTest {
 
         MatchResult 결과 = OrderMatcher.match(매수, List.of(매도_100, 매도_101));
 
-        // 정산이 실제로 하게 될 일 — makerOrderId로 원래 주문을 찾아 그 체결분을 적용한다
         List<Order> 호가창 = List.of(매도_100, 매도_101);
         Order 체결후_매도_100 = 체결을_적용한다(호가창, 결과, 매도_100.orderId());
         Order 체결후_매도_101 = 체결을_적용한다(호가창, 결과, 매도_101.orderId());
@@ -234,14 +215,12 @@ class OrderMatcherTest {
 
     @Test
     void 과거_체결이_있는_주문을_다시_매칭해도_과거_체결이_유지된다() {
-        // 부분 체결로 호가창에 남아 있던 주문이 다시 매칭에 들어오는 경우다
         Order 매도 = 주문(사용자_B, Side.SELL, 4, 100L, 1);
         Order 과거_체결이_있는_매수 = 주문(사용자_A, Side.BUY, 10, 100L, 2)
                 .withAdditionalFills(List.of(new Fill(99L, 6)));
 
         MatchResult 결과 = OrderMatcher.match(과거_체결이_있는_매수, List.of(매도));
 
-        // 남은 활성 잔량 4주만 새로 체결된다 — 주문 수량 10을 다시 채우려 들면 안 된다
         assertEquals(List.of(new Fill(99L, 6), new Fill(100L, 4)), 결과.taker().fills());
         assertEquals(10, 결과.taker().filledQuantity());
         assertEquals(OrderStatus.FILLED, 결과.taker().status());
@@ -256,13 +235,11 @@ class OrderMatcherTest {
 
         MatchResult 결과 = OrderMatcher.match(과거_체결이_있는_매수, List.of(매도));
 
-        // taker.fills()는 2건이지만 trades는 1건이다 — 원장에 과거 체결이 두 번 기록되면 안 된다
         assertEquals(List.of(new Trade(매도.orderId(), 100L, 4)), 결과.trades());
     }
 
     @Test
     void 활성_잔량이_0인_호가는_건너뛴다() {
-        // 계약상 호가창에는 활성 주문만 들어오지만, 죽은 주문이 섞여도 수량 0짜리 체결을 만들지 않는다
         Order 이미_체결된_매도 = 주문(사용자_B, Side.SELL, 3, 100L, 1)
                 .withAdditionalFills(List.of(new Fill(100L, 3)));
         Order 살아있는_매도 = 주문(사용자_C, Side.SELL, 3, 100L, 2);
@@ -275,8 +252,6 @@ class OrderMatcherTest {
 
     @Test
     void 자기_주문에_닿기_전에_전량_체결되면_취소가_없다() {
-        // D7의 조건은 "자기 호가와 체결될 첫 순간"이다 — 잔량이 이미 0이면 자기 주문에 닿을 일이 없다.
-        // 잔량 검사가 자기 주문 검사보다 뒤에 있으면 전량 체결된 주문이 CANCELLED로 뒤집힌다
         Order B의_매도 = 주문(사용자_B, Side.SELL, 3, 100L, 1);
         Order A의_매도 = 주문(사용자_A, Side.SELL, 5, 100L, 2);
         Order A의_매수 = 주문(사용자_A, Side.BUY, 3, 100L, 3);
@@ -291,7 +266,6 @@ class OrderMatcherTest {
 
     @Test
     void 이미_전량_체결된_자기_주문은_취소를_유발하지_않는다() {
-        // 취소 사유가 이미 사라진 주문 때문에 정상 주문이 취소되면 안 된다
         Order A의_죽은_매도 = 주문(사용자_A, Side.SELL, 3, 100L, 1)
                 .withAdditionalFills(List.of(new Fill(100L, 3)));
         Order B의_매도 = 주문(사용자_B, Side.SELL, 3, 100L, 2);

@@ -9,10 +9,6 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
-/**
- * 매칭 결과가 불변인지 검증한다. 결과가 정산·원장의 입력이므로, 호출자가 넘긴 리스트를 그대로
- * 들고 있으면 결과를 만든 뒤에 체결 내역이 바뀔 수 있다.
- */
 class MatchResultTest {
 
     private static final UUID ORDER_ID = UUID.fromString("22222222-2222-2222-2222-222222222222");
