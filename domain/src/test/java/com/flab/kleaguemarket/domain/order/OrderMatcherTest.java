@@ -3,6 +3,7 @@ package com.flab.kleaguemarket.domain.order;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -20,6 +21,14 @@ class OrderMatcherTest {
                 기준시각.plusSeconds(접수순서));
     }
 
+    /**
+     * 호가창은 저장소에서 오는 값이라 Order가 아니라 RestingOrder다. 테스트는 상황을 Order로 세우는 편이
+     * 읽기 쉬우므로 여기서 투영한다 — 무엇이 매칭 입력인지는 이 한 줄에만 나타난다.
+     */
+    private static List<RestingOrder> 호가창(Order... maker들) {
+        return Arrays.stream(maker들).map(RestingOrder::of).toList();
+    }
+
     private static void 수량_불변조건을_만족한다(Order order) {
         assertEquals(order.quantity(),
                 order.filledQuantity() + order.remainingQuantity() + order.cancelledQuantity(),
@@ -32,7 +41,7 @@ class OrderMatcherTest {
         Order 매도_101 = 주문(사용자_C, Side.SELL, 4, 101L, 2);
         Order 매수 = 주문(사용자_A, Side.BUY, 7, 102L, 3);
 
-        MatchResult 결과 = OrderMatcher.match(매수, List.of(매도_100, 매도_101));
+        MatchResult 결과 = OrderMatcher.match(매수, 호가창(매도_100, 매도_101));
 
         assertEquals(List.of(
                 new Trade(매도_100.orderId(), 100L, 3),
@@ -48,7 +57,7 @@ class OrderMatcherTest {
         Order 매도 = 주문(사용자_B, Side.SELL, 3, 100L, 1);
         Order 매수 = 주문(사용자_A, Side.BUY, 3, 102L, 2);
 
-        MatchResult 결과 = OrderMatcher.match(매수, List.of(매도));
+        MatchResult 결과 = OrderMatcher.match(매수, 호가창(매도));
 
         assertEquals(100L, 결과.trades().get(0).price());
         assertEquals(List.of(new Fill(100L, 3)), 결과.taker().fills());
@@ -60,7 +69,7 @@ class OrderMatcherTest {
         Order 나중_접수 = 주문(사용자_C, Side.SELL, 3, 100L, 2);
         Order 매수 = 주문(사용자_A, Side.BUY, 4, 100L, 3);
 
-        MatchResult 결과 = OrderMatcher.match(매수, List.of(먼저_접수, 나중_접수));
+        MatchResult 결과 = OrderMatcher.match(매수, 호가창(먼저_접수, 나중_접수));
 
         assertEquals(List.of(
                 new Trade(먼저_접수.orderId(), 100L, 3),
@@ -74,7 +83,7 @@ class OrderMatcherTest {
         Order 매수_103 = 주문(사용자_C, Side.BUY, 5, 103L, 2);
         Order 매도 = 주문(사용자_A, Side.SELL, 6, 100L, 3);
 
-        MatchResult 결과 = OrderMatcher.match(매도, List.of(매수_105, 매수_103));
+        MatchResult 결과 = OrderMatcher.match(매도, 호가창(매수_105, 매수_103));
 
         assertEquals(List.of(
                 new Trade(매수_105.orderId(), 105L, 5),
@@ -88,7 +97,7 @@ class OrderMatcherTest {
         Order 매도 = 주문(사용자_B, Side.SELL, 3, 100L, 1);
         Order 매수 = 주문(사용자_A, Side.BUY, 10, 100L, 2);
 
-        MatchResult 결과 = OrderMatcher.match(매수, List.of(매도));
+        MatchResult 결과 = OrderMatcher.match(매수, 호가창(매도));
 
         assertEquals(3, 결과.taker().filledQuantity());
         assertEquals(7, 결과.taker().remainingQuantity());
@@ -102,7 +111,7 @@ class OrderMatcherTest {
         Order 매도 = 주문(사용자_B, Side.SELL, 5, 101L, 1);
         Order 매수 = 주문(사용자_A, Side.BUY, 5, 99L, 2);
 
-        MatchResult 결과 = OrderMatcher.match(매수, List.of(매도));
+        MatchResult 결과 = OrderMatcher.match(매수, 호가창(매도));
 
         assertEquals(List.of(), 결과.trades());
         assertEquals(5, 결과.taker().remainingQuantity());
@@ -114,7 +123,7 @@ class OrderMatcherTest {
     void 호가창이_비어_있으면_체결_없이_OPEN이다() {
         Order 매수 = 주문(사용자_A, Side.BUY, 5, 100L, 1);
 
-        MatchResult 결과 = OrderMatcher.match(매수, List.of());
+        MatchResult 결과 = OrderMatcher.match(매수, 호가창());
 
         assertEquals(List.of(), 결과.trades());
         assertEquals(OrderStatus.OPEN, 결과.taker().status());
@@ -127,7 +136,7 @@ class OrderMatcherTest {
         Order A의_매도 = 주문(사용자_A, Side.SELL, 10, 100L, 2);
         Order A의_매수 = 주문(사용자_A, Side.BUY, 8, 100L, 3);
 
-        MatchResult 결과 = OrderMatcher.match(A의_매수, List.of(B의_매도, A의_매도));
+        MatchResult 결과 = OrderMatcher.match(A의_매수, 호가창(B의_매도, A의_매도));
 
         assertEquals(List.of(new Trade(B의_매도.orderId(), 100L, 3)), 결과.trades());
         assertEquals(3, 결과.taker().filledQuantity());
@@ -144,7 +153,7 @@ class OrderMatcherTest {
         Order C의_매도 = 주문(사용자_C, Side.SELL, 10, 100L, 3);
         Order A의_매수 = 주문(사용자_A, Side.BUY, 8, 100L, 4);
 
-        MatchResult 결과 = OrderMatcher.match(A의_매수, List.of(B의_매도, A의_매도, C의_매도));
+        MatchResult 결과 = OrderMatcher.match(A의_매수, 호가창(B의_매도, A의_매도, C의_매도));
 
         assertEquals(1, 결과.trades().size());
         assertEquals(B의_매도.orderId(), 결과.trades().get(0).makerOrderId());
@@ -158,7 +167,7 @@ class OrderMatcherTest {
         Order A의_매도 = 주문(사용자_A, Side.SELL, 5, 105L, 1);
         Order A의_매수 = 주문(사용자_A, Side.BUY, 5, 100L, 2);
 
-        MatchResult 결과 = OrderMatcher.match(A의_매수, List.of(A의_매도));
+        MatchResult 결과 = OrderMatcher.match(A의_매수, 호가창(A의_매도));
 
         assertEquals(List.of(), 결과.trades());
         assertEquals(0, 결과.taker().cancelledQuantity());
@@ -173,7 +182,7 @@ class OrderMatcherTest {
         Order 매도_102 = 주문(사용자_B, Side.SELL, 2, 102L, 3);
         Order 매수 = 주문(사용자_A, Side.BUY, 6, 102L, 4);
 
-        MatchResult 결과 = OrderMatcher.match(매수, List.of(매도_100, 매도_101, 매도_102));
+        MatchResult 결과 = OrderMatcher.match(매수, 호가창(매도_100, 매도_101, 매도_102));
 
         assertEquals(List.of(new Fill(100L, 2), new Fill(101L, 2), new Fill(102L, 2)),
                 결과.taker().fills());
@@ -186,11 +195,11 @@ class OrderMatcherTest {
         Order 매도_101 = 주문(사용자_C, Side.SELL, 4, 101L, 2);
         Order 매수 = 주문(사용자_A, Side.BUY, 5, 102L, 3);
 
-        MatchResult 결과 = OrderMatcher.match(매수, List.of(매도_100, 매도_101));
+        MatchResult 결과 = OrderMatcher.match(매수, 호가창(매도_100, 매도_101));
 
-        List<Order> 호가창 = List.of(매도_100, 매도_101);
-        Order 체결후_매도_100 = 체결을_적용한다(호가창, 결과, 매도_100.orderId());
-        Order 체결후_매도_101 = 체결을_적용한다(호가창, 결과, 매도_101.orderId());
+        List<Order> maker들 = List.of(매도_100, 매도_101);
+        Order 체결후_매도_100 = 체결을_적용한다(maker들, 결과, 매도_100.orderId());
+        Order 체결후_매도_101 = 체결을_적용한다(maker들, 결과, 매도_101.orderId());
 
         assertEquals(3, 체결후_매도_100.filledQuantity());
         assertEquals(OrderStatus.FILLED, 체결후_매도_100.status());
@@ -201,8 +210,8 @@ class OrderMatcherTest {
         수량_불변조건을_만족한다(체결후_매도_101);
     }
 
-    private static Order 체결을_적용한다(List<Order> 호가창, MatchResult 결과, UUID makerOrderId) {
-        Order maker = 호가창.stream()
+    private static Order 체결을_적용한다(List<Order> maker들, MatchResult 결과, UUID makerOrderId) {
+        Order maker = maker들.stream()
                 .filter(o -> o.orderId().equals(makerOrderId))
                 .findFirst()
                 .orElseThrow();
@@ -219,7 +228,7 @@ class OrderMatcherTest {
         Order 과거_체결이_있는_매수 = 주문(사용자_A, Side.BUY, 10, 100L, 2)
                 .withAdditionalFills(List.of(new Fill(99L, 6)));
 
-        MatchResult 결과 = OrderMatcher.match(과거_체결이_있는_매수, List.of(매도));
+        MatchResult 결과 = OrderMatcher.match(과거_체결이_있는_매수, 호가창(매도));
 
         assertEquals(List.of(new Fill(99L, 6), new Fill(100L, 4)), 결과.taker().fills());
         assertEquals(10, 결과.taker().filledQuantity());
@@ -233,7 +242,7 @@ class OrderMatcherTest {
         Order 과거_체결이_있는_매수 = 주문(사용자_A, Side.BUY, 10, 100L, 2)
                 .withAdditionalFills(List.of(new Fill(99L, 6)));
 
-        MatchResult 결과 = OrderMatcher.match(과거_체결이_있는_매수, List.of(매도));
+        MatchResult 결과 = OrderMatcher.match(과거_체결이_있는_매수, 호가창(매도));
 
         assertEquals(List.of(new Trade(매도.orderId(), 100L, 4)), 결과.trades());
     }
@@ -245,7 +254,7 @@ class OrderMatcherTest {
         Order 살아있는_매도 = 주문(사용자_C, Side.SELL, 3, 100L, 2);
         Order 매수 = 주문(사용자_A, Side.BUY, 3, 100L, 3);
 
-        MatchResult 결과 = OrderMatcher.match(매수, List.of(이미_체결된_매도, 살아있는_매도));
+        MatchResult 결과 = OrderMatcher.match(매수, 호가창(이미_체결된_매도, 살아있는_매도));
 
         assertEquals(List.of(new Trade(살아있는_매도.orderId(), 100L, 3)), 결과.trades());
     }
@@ -256,7 +265,7 @@ class OrderMatcherTest {
         Order A의_매도 = 주문(사용자_A, Side.SELL, 5, 100L, 2);
         Order A의_매수 = 주문(사용자_A, Side.BUY, 3, 100L, 3);
 
-        MatchResult 결과 = OrderMatcher.match(A의_매수, List.of(B의_매도, A의_매도));
+        MatchResult 결과 = OrderMatcher.match(A의_매수, 호가창(B의_매도, A의_매도));
 
         assertEquals(List.of(new Trade(B의_매도.orderId(), 100L, 3)), 결과.trades());
         assertEquals(0, 결과.taker().cancelledQuantity());
@@ -271,7 +280,7 @@ class OrderMatcherTest {
         Order B의_매도 = 주문(사용자_B, Side.SELL, 3, 100L, 2);
         Order A의_매수 = 주문(사용자_A, Side.BUY, 3, 100L, 3);
 
-        MatchResult 결과 = OrderMatcher.match(A의_매수, List.of(A의_죽은_매도, B의_매도));
+        MatchResult 결과 = OrderMatcher.match(A의_매수, 호가창(A의_죽은_매도, B의_매도));
 
         assertEquals(0, 결과.taker().cancelledQuantity());
         assertEquals(OrderStatus.FILLED, 결과.taker().status());
@@ -279,13 +288,13 @@ class OrderMatcherTest {
 
     @Test
     void 같은_입력을_반복하면_체결_순서와_결과가_동일하다() {
-        List<Order> 호가창 = List.of(
+        List<RestingOrder> 고정된_호가창 = 호가창(
                 주문(사용자_B, Side.SELL, 3, 100L, 1),
                 주문(사용자_C, Side.SELL, 4, 101L, 2));
         Order 매수 = 주문(사용자_A, Side.BUY, 6, 102L, 3);
 
-        MatchResult 첫번째 = OrderMatcher.match(매수, 호가창);
-        MatchResult 두번째 = OrderMatcher.match(매수, 호가창);
+        MatchResult 첫번째 = OrderMatcher.match(매수, 고정된_호가창);
+        MatchResult 두번째 = OrderMatcher.match(매수, 고정된_호가창);
 
         assertEquals(첫번째, 두번째);
         assertEquals(첫번째.trades(), 두번째.trades());

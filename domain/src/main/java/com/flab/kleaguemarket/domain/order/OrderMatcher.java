@@ -15,12 +15,12 @@ public final class OrderMatcher {
      * 매수 taker에는 매도 최저가순, 매도 taker에는 매수 최고가순이며 같은 가격은 FIFO다.
      * 체결가는 maker 한도가를 사용하고, 교차 가능한 자기 주문을 만나면 taker 잔량을 취소하고 종료한다.
      */
-    public static MatchResult match(Order taker, List<Order> orderedBook) {
+    public static MatchResult match(Order taker, List<RestingOrder> orderedBook) {
         int remaining = taker.remainingQuantity();
         List<Trade> trades = new ArrayList<>();
         boolean selfTradeBlocked = false;
 
-        for (Order maker : orderedBook) {
+        for (RestingOrder maker : orderedBook) {
             if (remaining == 0) {
                 break;
             }
@@ -49,7 +49,7 @@ public final class OrderMatcher {
         return new MatchResult(settled, trades);
     }
 
-    private static boolean crosses(Order taker, Order maker) {
+    private static boolean crosses(Order taker, RestingOrder maker) {
         return taker.side() == Side.BUY
                 ? maker.limitPrice() <= taker.limitPrice()
                 : maker.limitPrice() >= taker.limitPrice();
