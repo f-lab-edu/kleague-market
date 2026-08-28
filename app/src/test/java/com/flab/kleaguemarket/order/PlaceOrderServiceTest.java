@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -64,6 +65,7 @@ class PlaceOrderServiceTest {
 
     @BeforeEach
     void setUp() {
+        lenient().when(orderRepository.enterSerializationPoint(PLAYER_ID)).thenReturn(1L);
         service = new PlaceOrderService(
                 playerMarket, traderAccount, matchingEngine, orderRepository, new TradingPolicy(HOLDING_CAP));
     }
@@ -106,11 +108,15 @@ class PlaceOrderServiceTest {
         // orderId는 매칭 전에 발급된다 (설계 스펙 D4) — 매칭에 넘긴 주문과 반환된 주문의 id가 같아야 한다
         assertThat(requested.getValue().orderId()).isEqualTo(placed.orderId());
 
-        ArgumentCaptor<Order> saved = ArgumentCaptor.forClass(Order.class);
-        verify(orderRepository).save(saved.capture());
-        // 매칭 전 주문을 저장하고 매칭 후 주문을 반환하면 DB와 응답이 어긋난다. 체결이 비어 있으면
-        // 두 주문이 같아져 이 회귀를 못 잡으므로 이 시나리오의 체결은 비어 있지 않아야 한다
-        assertThat(saved.getValue()).isEqualTo(placed);
+        // 접수는 매칭 전 주문을, 정산은 매칭 결과를 저장한다. 체결이 비어 있으면 둘이 같아져
+        // 이 구분을 검증할 수 없으므로 이 시나리오의 체결은 비어 있지 않아야 한다
+        ArgumentCaptor<Order> accepted = ArgumentCaptor.forClass(Order.class);
+        verify(orderRepository).saveAcceptance(accepted.capture(), anyLong());
+        assertThat(accepted.getValue().fills()).isEmpty();
+
+        ArgumentCaptor<MatchResult> settled = ArgumentCaptor.forClass(MatchResult.class);
+        verify(orderRepository).saveSettlement(settled.capture());
+        assertThat(settled.getValue().taker()).isEqualTo(placed);
     }
 
     @Test
@@ -124,10 +130,10 @@ class PlaceOrderServiceTest {
 
         Order placed = service.place(new PlaceOrderCommand(USER_ID, PLAYER_ID, Side.SELL, 100, 100L));
 
-        ArgumentCaptor<Order> saved = ArgumentCaptor.forClass(Order.class);
+        ArgumentCaptor<MatchResult> settled = ArgumentCaptor.forClass(MatchResult.class);
         verify(matchingEngine).match(any(Order.class));
-        verify(orderRepository).save(saved.capture());
-        assertThat(saved.getValue()).isEqualTo(placed);
+        verify(orderRepository).saveSettlement(settled.capture());
+        assertThat(settled.getValue().taker()).isEqualTo(placed);
     }
 
     @Test
@@ -142,7 +148,7 @@ class PlaceOrderServiceTest {
         // 선수 자체가 거래 불가라 잔고를 읽을 이유가 없다 — 거부는 가장 바깥 조건에서 끝난다
         verify(traderAccount, never()).snapshot(any(), anyLong());
         verify(matchingEngine, never()).match(any(Order.class));
-        verify(orderRepository, never()).save(any(Order.class));
+        verify(orderRepository, never()).saveAcceptance(any(Order.class), anyLong());
     }
 
     @Test
@@ -158,7 +164,7 @@ class PlaceOrderServiceTest {
                 .isEqualTo(OrderRejection.INSUFFICIENT_BALANCE);
 
         verify(matchingEngine, never()).match(any(Order.class));
-        verify(orderRepository, never()).save(any(Order.class));
+        verify(orderRepository, never()).saveAcceptance(any(Order.class), anyLong());
     }
 
     @Test
@@ -174,7 +180,7 @@ class PlaceOrderServiceTest {
                 .isEqualTo(OrderRejection.HOLDING_CAP_EXCEEDED);
 
         verify(matchingEngine, never()).match(any(Order.class));
-        verify(orderRepository, never()).save(any(Order.class));
+        verify(orderRepository, never()).saveAcceptance(any(Order.class), anyLong());
     }
 
     @Test
@@ -190,6 +196,6 @@ class PlaceOrderServiceTest {
                 .isEqualTo(OrderRejection.INSUFFICIENT_SHARES);
 
         verify(matchingEngine, never()).match(any(Order.class));
-        verify(orderRepository, never()).save(any(Order.class));
+        verify(orderRepository, never()).saveAcceptance(any(Order.class), anyLong());
     }
 }

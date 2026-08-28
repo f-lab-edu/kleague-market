@@ -1,5 +1,6 @@
 package com.flab.kleaguemarket.order;
 
+import com.flab.kleaguemarket.domain.order.MatchResult;
 import com.flab.kleaguemarket.domain.order.Order;
 import com.flab.kleaguemarket.domain.order.OrderRejectedException;
 import com.flab.kleaguemarket.domain.order.OrderRejection;
@@ -11,15 +12,13 @@ import com.flab.kleaguemarket.domain.order.port.PlayerMarket;
 import com.flab.kleaguemarket.domain.order.port.TraderAccount;
 import java.time.Instant;
 import java.util.UUID;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 주문 생성 유스케이스 — 조율과 트랜잭션 경계는 app의 몫이다 (ADR-0001).
  *
- * <p>@Service를 붙이지 않은 것은 의도다. 포트 4개의 어댑터가 아직 없어 빈으로 등록하면
- * 컨텍스트 조립이 실패한다. 컨트롤러를 실제 서비스로 교체할 때 함께 등록한다.
- *
- * <p>@Transactional도 아직 없다. 주문 생성 → 매칭 → 정산 → 잔량 등록이 단일 원자 트랜잭션이어야 하고
- * 선수별로 직렬화돼야 하지만(ADR-0005), 그 경계는 실제 Repository와 매칭 엔진이 붙을 때 결정된다.
+ * <p>@Service를 붙이지 않은 것은 의도다. 컨트롤러를 실제 서비스로 교체할 때 함께 등록한다.
  */
 public class PlaceOrderService {
 
@@ -44,8 +43,12 @@ public class PlaceOrderService {
     /**
      * 주문을 접수한다. 반환값은 "체결됨"이 아니라 "접수됨 + 즉시 체결분"이다 (설계 스펙 D4).
      *
+     * <p>격리 수준을 올리면 anchor 갱신이 직렬화 실패로 중단되어 재시도가 필수가 된다. 뒤 요청이
+     * 기다렸다가 최신 호가창을 다시 읽는 동작은 {@code READ COMMITTED}에서만 성립한다.
+     *
      * @throws OrderRejectedException 거래정지·잔고 부족·주식 부족·보유 상한 초과
      */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Order place(PlaceOrderCommand command) {
         Order order = Order.placed(
                 UUID.randomUUID(),
@@ -56,23 +59,30 @@ public class PlaceOrderService {
                 command.limitPrice(),
                 Instant.now());
 
-        rejectIfUnacceptable(order);
-
-        Order settled = matchingEngine.match(order).taker();
-        orderRepository.save(settled);
-        return settled;
-    }
-
-    /**
-     * 접수 가능한지 판정한다. 검사 순서를 고정한 이유는 한 요청이 여러 조건을 동시에 위반할 때
-     * 응답 code가 실행마다 달라지지 않게 하기 위해서다. 거래정지가 가장 바깥 조건이라 먼저 본다.
-     */
-    private void rejectIfUnacceptable(Order order) {
+        // 거래정지는 자산과 무관한 가장 바깥 조건이라 직렬화 지점에 들어가기 전에 본다
         if (!playerMarket.isTradable(order.playerId())) {
             throw new OrderRejectedException(OrderRejection.MARKET_CLOSED,
                     "거래가 정지된 선수입니다: " + order.playerId());
         }
 
+        long prioritySequence = orderRepository.enterSerializationPoint(order.playerId());
+        orderRepository.lockTraderAssets(order.userId());
+        rejectIfAssetsInsufficient(order);
+
+        orderRepository.saveAcceptance(order, prioritySequence);
+        MatchResult result = matchingEngine.match(order);
+        orderRepository.saveSettlement(result);
+        return result.taker();
+    }
+
+    /**
+     * 자산이 모자라면 거부한다. 검사 순서를 고정한 이유는 한 요청이 여러 조건을 동시에 위반할 때
+     * 응답 code가 실행마다 달라지지 않게 하기 위해서다.
+     *
+     * <p>계좌를 잠근 뒤에 스냅샷을 한 번만 읽는다 — 잠금 전에 읽으면 다른 선수의 동시 주문이
+     * 반영되지 않은 예약을 보고 같은 현금을 두 번 쓴다.
+     */
+    private void rejectIfAssetsInsufficient(Order order) {
         TraderAccount.Snapshot account = traderAccount.snapshot(order.userId(), order.playerId());
 
         if (order.side() == Side.BUY) {
