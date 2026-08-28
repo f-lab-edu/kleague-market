@@ -3,6 +3,7 @@ package com.flab.kleaguemarket.order;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.flab.kleaguemarket.domain.order.Side;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -98,7 +99,7 @@ class SettlementReconciliationPostgresTest {
         jdbc.update("DELETE FROM order_events WHERE trade_id = :id", Map.of("id", tradeId));
 
         assertThat(대사()).extracting(SettlementReconciliation.Mismatch::check)
-                .contains("체결마다 maker와 taker의 체결 이벤트가 수량까지 일치");
+                .contains("체결마다 maker와 taker의 체결 이벤트가 정확히 하나씩");
     }
 
     @Test
@@ -115,7 +116,44 @@ class SettlementReconciliationPostgresTest {
                 """, Map.of("id", makerOrderId));
 
         assertThat(대사()).extracting(SettlementReconciliation.Mismatch::check)
-                .contains("현재 상태의 체결 수량이 체결 원본의 합과 일치");
+                .contains("신규 주문마다 현재 상태가 있고 체결 수량이 체결 원본과 일치");
+    }
+
+    @Test
+    void 같은_사용자의_두_주문이_체결되면_검출한다() {
+        자기_자신과의_체결을_손으로_넣는다();
+
+        // 매칭기의 STP가 막고 있어 정상 경로로는 만들어질 수 없다. 그 방어선이 뚫렸을 때
+        // 원장 합은 0이고 사용자도 제자리라 다른 검사는 모두 통과한다 (설계 스펙 D7)
+        assertThat(대사()).extracting(SettlementReconciliation.Mismatch::check)
+                .containsExactly("체결 양쪽이 서로 다른 사용자");
+    }
+
+    @Test
+    void 제삼의_주문에_체결_이벤트가_붙으면_검출한다() {
+        UUID tradeId = 체결을_만든다();
+        UUID 무관한_주문 = 주문_헤더를_손으로_넣는다(선수를_새로_연다(), 계좌를_연다(0L), "BUY", 3, 100L, 1L);
+        jdbc.update("INSERT INTO order_states (order_id, quantity) VALUES (:id, 3)",
+                Map.of("id", 무관한_주문));
+
+        이벤트를_손으로_넣는다(무관한_주문, 3, tradeId);
+
+        assertThat(대사()).extracting(SettlementReconciliation.Mismatch::check)
+                .contains("체결마다 maker와 taker의 체결 이벤트가 정확히 하나씩");
+    }
+
+    @Test
+    void 신규_주문의_현재_상태가_사라지면_검출한다() {
+        UUID tradeId = 체결을_만든다();
+        UUID takerOrderId = jdbc.queryForObject(
+                "SELECT taker_order_id FROM trades WHERE trade_id = :id", Map.of("id", tradeId), UUID.class);
+
+        // 상태를 참조하는 외래 키가 없어 행만 사라질 수 있다. 그러면 그 주문은 호가창과 예약에서
+        // 조용히 빠지는데, 상태 테이블을 훑는 방식으로는 사라진 주문을 볼 수 없다
+        jdbc.update("DELETE FROM order_states WHERE order_id = :id", Map.of("id", takerOrderId));
+
+        assertThat(대사()).extracting(SettlementReconciliation.Mismatch::check)
+                .contains("신규 주문마다 현재 상태가 있고 체결 수량이 체결 원본과 일치");
     }
 
     @Test
@@ -157,6 +195,77 @@ class SettlementReconciliationPostgresTest {
         var 매수 = service.place(new PlaceOrderCommand(매수자, 선수, Side.BUY, 3, 100L));
         return jdbc.queryForObject("SELECT trade_id FROM trades WHERE taker_order_id = :id",
                 Map.of("id", 매수.orderId()), UUID.class);
+    }
+
+    /**
+     * 자기 자신과 체결한 기록을 직접 넣는다. 서비스로는 만들 수 없으므로 손으로 쓴다.
+     * 자전거래라는 사실 하나만 빼면 원장·이벤트·상태가 모두 앞뒤가 맞는 형태로 만든다.
+     */
+    private void 자기_자신과의_체결을_손으로_넣는다() {
+        long 선수 = 선수를_새로_연다();
+        UUID 한_사람 = 계좌를_연다(10_000L);
+        UUID maker = 주문_헤더를_손으로_넣는다(선수, 한_사람, "SELL", 3, 100L, 1L);
+        UUID taker = 주문_헤더를_손으로_넣는다(선수, 한_사람, "BUY", 3, 100L, 2L);
+        보유를_넣는다(한_사람, 선수, 3);
+        jdbc.update("""
+                INSERT INTO order_states (order_id, quantity, filled_quantity)
+                VALUES (:maker, 3, 3), (:taker, 3, 3)
+                """, Map.of("maker", maker, "taker", taker));
+
+        UUID tradeId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO trades (trade_id, player_id, maker_order_id, taker_order_id, taker_side,
+                                    price, quantity, match_sequence, executed_at)
+                VALUES (:trade, :player, :maker, :taker, 'BUY', 100, 3, 1, now())
+                """, Map.of("trade", tradeId, "player", 선수, "maker", maker, "taker", taker));
+        원장을_손으로_넣는다(tradeId, 한_사람, "TRADE_BUY", -300L, 9_700L);
+        원장을_손으로_넣는다(tradeId, 한_사람, "TRADE_SELL", 300L, 10_000L);
+        이벤트를_손으로_넣는다(maker, 3, tradeId);
+        이벤트를_손으로_넣는다(taker, 3, tradeId);
+    }
+
+    private UUID 주문_헤더를_손으로_넣는다(long playerId, UUID userId, String side, int quantity,
+                                 long limitPrice, Long prioritySequence) {
+        UUID orderId = UUID.randomUUID();
+        Map<String, Object> params = new HashMap<>();
+        params.put("order_id", orderId);
+        params.put("user_id", userId);
+        params.put("player_id", playerId);
+        params.put("side", side);
+        params.put("quantity", quantity);
+        params.put("limit_price", limitPrice);
+        params.put("priority_sequence", prioritySequence);
+        jdbc.update("""
+                INSERT INTO orders (order_id, user_id, player_id, side, quantity, limit_price,
+                                    created_at, priority_sequence)
+                VALUES (:order_id, :user_id, :player_id, :side, :quantity, :limit_price,
+                        now(), :priority_sequence)
+                """, params);
+        return orderId;
+    }
+
+    private void 원장을_손으로_넣는다(UUID tradeId, UUID userId, String entryType,
+                             long amount, long balanceAfter) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("entry_id", UUID.randomUUID());
+        params.put("user_id", userId);
+        params.put("entry_type", entryType);
+        params.put("amount", amount);
+        params.put("balance_after", balanceAfter);
+        params.put("trade_id", tradeId);
+        jdbc.update("""
+                INSERT INTO cash_ledger (entry_id, user_id, entry_type, amount, balance_after,
+                                         trade_id, occurred_at)
+                VALUES (:entry_id, :user_id, :entry_type, :amount, :balance_after, :trade_id, now())
+                """, params);
+    }
+
+    private void 이벤트를_손으로_넣는다(UUID orderId, int quantity, UUID tradeId) {
+        jdbc.update("""
+                INSERT INTO order_events (event_id, order_id, event_type, quantity, trade_id, occurred_at)
+                VALUES (:event_id, :order_id, 'FILLED', :quantity, :trade_id, now())
+                """, Map.of("event_id", UUID.randomUUID(), "order_id", orderId,
+                "quantity", quantity, "trade_id", tradeId));
     }
 
     private long 선수를_새로_연다() {

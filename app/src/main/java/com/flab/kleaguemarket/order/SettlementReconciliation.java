@@ -56,22 +56,38 @@ class SettlementReconciliation {
                     OR m.side = k.side
                     OR k.side <> t.taker_side
                 """);
-        CHECKS.put("체결마다 maker와 taker의 체결 이벤트가 수량까지 일치", """
+        CHECKS.put("체결 양쪽이 서로 다른 사용자", """
                 SELECT t.trade_id::text AS detail
                   FROM trades t
-                  LEFT JOIN order_events em
-                         ON em.trade_id = t.trade_id AND em.order_id = t.maker_order_id
-                  LEFT JOIN order_events ek
-                         ON ek.trade_id = t.trade_id AND ek.order_id = t.taker_order_id
-                 WHERE em.event_id IS NULL OR ek.event_id IS NULL
-                    OR em.quantity <> t.quantity OR ek.quantity <> t.quantity
+                  JOIN orders m ON m.order_id = t.maker_order_id
+                  JOIN orders k ON k.order_id = t.taker_order_id
+                 WHERE m.user_id = k.user_id
                 """);
-        CHECKS.put("현재 상태의 체결 수량이 체결 원본의 합과 일치", """
-                SELECT s.order_id::text AS detail
-                  FROM order_states s
-                 WHERE s.filled_quantity <> (
-                           SELECT coalesce(sum(t.quantity), 0) FROM trades t
-                            WHERE t.maker_order_id = s.order_id OR t.taker_order_id = s.order_id)
+        // 존재와 수량만 보면 무관한 제3의 주문이 같은 체결을 가리켜도 통과한다. 이벤트 집합이
+        // 정확히 maker와 taker 둘로만 이뤄지는지 세어야 한다. trade_id가 있는 이벤트는
+        // order_events_trade_link_check에 의해 반드시 FILLED이므로 종류를 따로 걸지 않는다.
+        CHECKS.put("체결마다 maker와 taker의 체결 이벤트가 정확히 하나씩", """
+                SELECT t.trade_id::text AS detail
+                  FROM trades t
+                  LEFT JOIN order_events e ON e.trade_id = t.trade_id
+                 GROUP BY t.trade_id, t.maker_order_id, t.taker_order_id, t.quantity
+                HAVING count(e.event_id) <> 2
+                    OR count(*) FILTER (
+                           WHERE e.order_id = t.maker_order_id AND e.quantity = t.quantity) <> 1
+                    OR count(*) FILTER (
+                           WHERE e.order_id = t.taker_order_id AND e.quantity = t.quantity) <> 1
+                """);
+        // 상태 테이블에서 출발하면 행이 통째로 사라진 주문은 검사 대상에서도 사라진다.
+        // 그런 주문은 호가창과 예약에서 조용히 빠지므로 주문 쪽에서 출발해 존재까지 확인한다.
+        CHECKS.put("신규 주문마다 현재 상태가 있고 체결 수량이 체결 원본과 일치", """
+                SELECT o.order_id::text AS detail
+                  FROM orders o
+                  LEFT JOIN order_states s ON s.order_id = o.order_id
+                 WHERE o.priority_sequence IS NOT NULL
+                   AND (s.order_id IS NULL
+                     OR s.filled_quantity <> (
+                            SELECT coalesce(sum(t.quantity), 0) FROM trades t
+                             WHERE t.maker_order_id = o.order_id OR t.taker_order_id = o.order_id))
                 """);
         CHECKS.put("레거시 주문에 상태·체결·이벤트가 없음", """
                 SELECT o.order_id::text AS detail

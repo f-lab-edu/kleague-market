@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.flab.kleaguemarket.domain.order.MatchResult;
 import com.flab.kleaguemarket.domain.order.Order;
+import com.flab.kleaguemarket.domain.order.OrderRejectedException;
+import com.flab.kleaguemarket.domain.order.OrderRejection;
 import com.flab.kleaguemarket.domain.order.Side;
 import com.flab.kleaguemarket.domain.order.port.OrderRepository;
 import java.time.Duration;
@@ -18,6 +20,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import org.assertj.core.api.InstanceOfAssertFactories;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -125,7 +128,12 @@ class ConcurrentOrderPostgresTest {
 
         // 서로 다른 선수라 anchor가 다르다. 계좌 행 잠금이 없으면 둘 다 잔고 100을 보고 통과한다
         assertThat(결과들).filteredOn(r -> r instanceof Order).hasSize(1);
-        assertThat(결과들).filteredOn(r -> r instanceof Exception).hasSize(1);
+        // 거절 사유까지 본다 — 아무 예외나 세면 SQL 오류나 잠금 실패도 통과시켜 예약 직렬화를 증명하지 못한다
+        assertThat(결과들).filteredOn(r -> r instanceof Throwable)
+                .singleElement()
+                .asInstanceOf(InstanceOfAssertFactories.type(OrderRejectedException.class))
+                .extracting(OrderRejectedException::rejection)
+                .isEqualTo(OrderRejection.INSUFFICIENT_BALANCE);
         assertThat(수("SELECT count(*) FROM orders WHERE user_id = :id", 매수자)).isEqualTo(1);
     }
 
