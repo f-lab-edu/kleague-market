@@ -1,18 +1,18 @@
 package com.flab.kleaguemarket.domain.order;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 /**
- * 지정가 주문 한 건.
+ * 지정가 주문 한 건. 체결 수량·활성 잔량·평균 체결가·상태는 fills에서 파생하고,
+ * 취소 수량만 별도 저장한다.
+ * {@code 주문 수량 = 체결 수량 + 활성 잔량 + 취소 수량}을 생성 시점에 보장한다.
  *
- * <p>filledQuantity·remainingQuantity·avgFillPrice·status를 필드로 갖지 않고 fills에서 파생시킨다 —
- * 저장값으로 두면 fills와 어긋날 수 있는 상태가 생긴다 (ADR-0006의 "로그에서 파생" 원칙,
- * 설계 스펙 D4의 "언제나 원본 fills에서 재계산한다").
- *
- * @param quantity   최초 주문 수량. 체결돼도 줄지 않는다 — 줄어드는 것은 remainingQuantity다
- * @param limitPrice 한도가. 매수는 최대 지불, 매도는 최소 수취 (설계 스펙 D4)
+ * @param quantity          최초 주문 수량. 체결돼도 줄지 않는다 — 줄어드는 것은 remainingQuantity다
+ * @param limitPrice        한도가. 매수는 최대 지불, 매도는 최소 수취 (설계 스펙 D4)
+ * @param cancelledQuantity 취소로 종료된 수량. 취소는 언제나 "잔량 전부"라 0이거나 잔량 전체다
  */
 public record Order(
         UUID orderId,
@@ -22,6 +22,7 @@ public record Order(
         int quantity,
         long limitPrice,
         List<Fill> fills,
+        int cancelledQuantity,
         Instant createdAt
 ) {
 
@@ -32,9 +33,20 @@ public record Order(
         if (limitPrice < 1) {
             throw new IllegalArgumentException("한도가는 1 이상이어야 합니다: " + limitPrice);
         }
+        if (cancelledQuantity < 0) {
+            throw new IllegalArgumentException("취소 수량은 음수일 수 없습니다: " + cancelledQuantity);
+        }
         fills = List.copyOf(fills);
-        if (sumQuantity(fills) > quantity) {
-            throw new IllegalArgumentException("체결 수량이 주문 수량을 넘을 수 없습니다: " + sumQuantity(fills) + " > " + quantity);
+        int settled = Math.addExact(sumQuantity(fills), cancelledQuantity);
+        if (settled > quantity) {
+            throw new IllegalArgumentException(
+                    "체결과 취소의 합이 주문 수량을 넘을 수 없습니다: " + settled + " > " + quantity);
+        }
+        // 취소는 활성 잔량 전부에만 허용한다
+        if (cancelledQuantity > 0 && settled != quantity) {
+            throw new IllegalArgumentException(
+                    "취소된 주문에는 활성 잔량이 남을 수 없습니다: 체결 " + sumQuantity(fills)
+                            + " + 취소 " + cancelledQuantity + " ≠ 주문 " + quantity);
         }
         // 설계 스펙 D4의 불변식 — "매수 실지불 ≤ 예약액이고 매도 수취 ≥ 자기 한도가(양쪽 다 한도 위반 없음)".
         // 체결가는 maker의 한도가라 이 주문의 한도가와 다를 수 있지만, 한도를 넘는 쪽으로는 갈 수 없다
@@ -47,14 +59,36 @@ public record Order(
         }
     }
 
+    public Order(UUID orderId, UUID userId, long playerId, Side side,
+                 int quantity, long limitPrice, List<Fill> fills, Instant createdAt) {
+        this(orderId, userId, playerId, side, quantity, limitPrice, fills, 0, createdAt);
+    }
+
     /** 아직 매칭을 거치지 않은 주문. orderId는 매칭 전에 발급된다 (설계 스펙 D4 — 감사·내역·fill 참조). */
     public static Order placed(UUID orderId, UUID userId, long playerId, Side side,
                                int quantity, long limitPrice, Instant createdAt) {
         return new Order(orderId, userId, playerId, side, quantity, limitPrice, List.of(), createdAt);
     }
 
-    public Order withFills(List<Fill> matched) {
-        return new Order(orderId, userId, playerId, side, quantity, limitPrice, matched, createdAt);
+    /** 기존 체결에 새 체결을 덧붙인다. */
+    public Order withAdditionalFills(List<Fill> matched) {
+        if (matched.isEmpty()) {
+            return this;
+        }
+        List<Fill> merged = new ArrayList<>(fills.size() + matched.size());
+        merged.addAll(fills);
+        merged.addAll(matched);
+        return new Order(orderId, userId, playerId, side, quantity, limitPrice, merged, cancelledQuantity, createdAt);
+    }
+
+    /** 활성 잔량 전부를 취소한다. */
+    public Order cancelRemaining() {
+        int active = remainingQuantity();
+        if (active == 0) {
+            return this;
+        }
+        return new Order(orderId, userId, playerId, side, quantity, limitPrice, fills,
+                Math.addExact(cancelledQuantity, active), createdAt);
     }
 
     public int filledQuantity() {
@@ -64,16 +98,16 @@ public record Order(
     /**
      * 계약상 이 값은 산술 잔여가 아니라 "호가창에 살아 있어 아직 체결될 수 있는 수량"이다
      * (openapi.yaml OrderResponse.remainingQuantity). 종료된 주문은 0이므로 CANCELLED에서는
-     * filledQuantity + remainingQuantity < quantity가 된다.
-     *
-     * <p>주문을 종료시키는 경로(취소·STP Cancel Taker)가 아직 없어 지금은 두 정의가 같은 값을 낸다.
-     * 종료 경로가 들어오면 이 계산은 종료 여부를 함께 봐야 한다.
+     * filledQuantity + remainingQuantity &lt; quantity가 된다.
      */
     public int remainingQuantity() {
-        return quantity - filledQuantity();
+        return quantity - filledQuantity() - cancelledQuantity;
     }
 
     public OrderStatus status() {
+        if (cancelledQuantity > 0) {
+            return OrderStatus.CANCELLED;
+        }
         int filled = filledQuantity();
         if (filled == 0) {
             return OrderStatus.OPEN;

@@ -121,4 +121,76 @@ class OrderTest {
 
         assertEquals(3, order.filledQuantity());
     }
+
+    @Test
+    void 잔량이_취소되면_CANCELLED이고_활성_잔량은_0이_된다() {
+        Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 100L,
+                List.of(new Fill(100L, 6)), CREATED_AT).cancelRemaining();
+
+        assertEquals(6, order.filledQuantity());
+        assertEquals(4, order.cancelledQuantity());
+        assertEquals(0, order.remainingQuantity());
+        assertEquals(OrderStatus.CANCELLED, order.status());
+    }
+
+    @Test
+    void 체결이_없는_주문을_취소하면_전량이_취소_수량이_된다() {
+        Order order = Order.placed(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 100L, CREATED_AT)
+                .cancelRemaining();
+
+        assertEquals(0, order.filledQuantity());
+        assertEquals(10, order.cancelledQuantity());
+        assertEquals(OrderStatus.CANCELLED, order.status());
+    }
+
+    @Test
+    void 전량_체결된_주문을_취소해도_FILLED_그대로다() {
+        Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 5, 100L,
+                List.of(new Fill(100L, 5)), CREATED_AT).cancelRemaining();
+
+        assertEquals(0, order.cancelledQuantity());
+        assertEquals(OrderStatus.FILLED, order.status());
+    }
+
+    @Test
+    void 취소된_주문의_체결_수량과_평균가는_보존된다() {
+        Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 102L,
+                List.of(new Fill(100L, 1), new Fill(101L, 1)), CREATED_AT).cancelRemaining();
+
+        assertEquals(2, order.filledQuantity());
+        assertEquals(101L, order.avgFillPrice());
+    }
+
+    @Test
+    void 취소_수량만큼_최대_필요_현금이_줄어든다() {
+        Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 100L,
+                List.of(new Fill(100L, 6)), CREATED_AT);
+
+        assertEquals(400L, order.maxCashRequired());
+        assertEquals(0L, order.cancelRemaining().maxCashRequired());
+    }
+
+    @Test
+    void 일부만_취소되면서_활성_잔량이_남으면_생성에_실패한다() {
+        assertThrows(IllegalArgumentException.class, () -> new Order(
+                ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 100L,
+                List.of(new Fill(100L, 3)), 2, CREATED_AT));
+    }
+
+    @Test
+    void 체결과_취소의_합이_주문_수량을_넘으면_생성에_실패한다() {
+        assertThrows(IllegalArgumentException.class, () -> new Order(
+                ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 100L,
+                List.of(new Fill(100L, 6)), 5, CREATED_AT));
+    }
+
+    @Test
+    void 추가_체결은_기존_체결_내역에_덧붙는다() {
+        Order order = new Order(ORDER_ID, USER_ID, PLAYER_ID, Side.BUY, 10, 102L,
+                List.of(new Fill(100L, 3)), CREATED_AT)
+                .withAdditionalFills(List.of(new Fill(101L, 4)));
+
+        assertEquals(List.of(new Fill(100L, 3), new Fill(101L, 4)), order.fills());
+        assertEquals(7, order.filledQuantity());
+    }
 }

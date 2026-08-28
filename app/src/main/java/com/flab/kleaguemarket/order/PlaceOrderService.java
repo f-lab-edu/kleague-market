@@ -1,6 +1,5 @@
 package com.flab.kleaguemarket.order;
 
-import com.flab.kleaguemarket.domain.order.Fill;
 import com.flab.kleaguemarket.domain.order.Order;
 import com.flab.kleaguemarket.domain.order.OrderRejectedException;
 import com.flab.kleaguemarket.domain.order.OrderRejection;
@@ -11,7 +10,6 @@ import com.flab.kleaguemarket.domain.order.port.OrderRepository;
 import com.flab.kleaguemarket.domain.order.port.PlayerMarket;
 import com.flab.kleaguemarket.domain.order.port.TraderAccount;
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -60,8 +58,7 @@ public class PlaceOrderService {
 
         rejectIfUnacceptable(order);
 
-        List<Fill> fills = matchingEngine.match(order);
-        Order settled = order.withFills(fills);
+        Order settled = matchingEngine.match(order).taker();
         orderRepository.save(settled);
         return settled;
     }

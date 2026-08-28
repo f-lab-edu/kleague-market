@@ -9,10 +9,12 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 import com.flab.kleaguemarket.domain.order.Fill;
+import com.flab.kleaguemarket.domain.order.MatchResult;
 import com.flab.kleaguemarket.domain.order.Order;
 import com.flab.kleaguemarket.domain.order.OrderRejectedException;
 import com.flab.kleaguemarket.domain.order.OrderRejection;
 import com.flab.kleaguemarket.domain.order.Side;
+import com.flab.kleaguemarket.domain.order.Trade;
 import com.flab.kleaguemarket.domain.order.TradingPolicy;
 import com.flab.kleaguemarket.domain.order.port.MatchingEngine;
 import com.flab.kleaguemarket.domain.order.port.OrderRepository;
@@ -26,6 +28,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.stubbing.Answer;
 
 /**
  * place()가 직접 가진 분기와 협력자 조율만 검증한다 — 거부 판정 네 갈래, 포트 호출과 중단,
@@ -44,6 +47,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class PlaceOrderServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
+    private static final UUID MAKER_ORDER_ID = UUID.fromString("33333333-3333-3333-3333-333333333333");
     private static final long PLAYER_ID = 42L;
     private static final int HOLDING_CAP = 100;
 
@@ -64,6 +68,17 @@ class PlaceOrderServiceTest {
                 playerMarket, traderAccount, matchingEngine, orderRepository, new TradingPolicy(HOLDING_CAP));
     }
 
+    /** 서비스가 생성한 주문 ID를 보존하려고 호출 인자로 결과를 만든다. */
+    private static Answer<MatchResult> 체결시킨다(List<Fill> fills) {
+        return invocation -> {
+            Order requested = invocation.getArgument(0);
+            List<Trade> trades = fills.stream()
+                    .map(fill -> new Trade(MAKER_ORDER_ID, fill.price(), fill.quantity()))
+                    .toList();
+            return new MatchResult(requested.withAdditionalFills(fills), trades);
+        };
+    }
+
     @Test
     void 필요_현금과_보유_상한_경계의_매수는_매칭_결과가_반영된_채로_저장되고_반환된다() {
         given(playerMarket.isTradable(PLAYER_ID)).willReturn(true);
@@ -71,7 +86,7 @@ class PlaceOrderServiceTest {
         given(traderAccount.snapshot(USER_ID, PLAYER_ID))
                 .willReturn(new TraderAccount.Snapshot(1_000L, 80, 0, 10));
         List<Fill> matched = List.of(new Fill(90L, 4));
-        given(matchingEngine.match(any(Order.class))).willReturn(matched);
+        given(matchingEngine.match(any(Order.class))).willAnswer(체결시킨다(matched));
 
         Order placed = service.place(new PlaceOrderCommand(USER_ID, PLAYER_ID, Side.BUY, 10, 100L));
 
@@ -105,7 +120,7 @@ class PlaceOrderServiceTest {
         // 100 + 100 > 100이 되어 거부된다 — 그 오류를 이 입력이 잡는다
         given(traderAccount.snapshot(USER_ID, PLAYER_ID))
                 .willReturn(new TraderAccount.Snapshot(0L, HOLDING_CAP, 100, 0));
-        given(matchingEngine.match(any(Order.class))).willReturn(List.of());
+        given(matchingEngine.match(any(Order.class))).willAnswer(체결시킨다(List.of()));
 
         Order placed = service.place(new PlaceOrderCommand(USER_ID, PLAYER_ID, Side.SELL, 100, 100L));
 
