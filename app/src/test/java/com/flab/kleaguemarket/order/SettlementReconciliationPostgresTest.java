@@ -120,6 +120,19 @@ class SettlementReconciliationPostgresTest {
     }
 
     @Test
+    void 체결의_선수가_양쪽_주문과_어긋나면_검출한다() {
+        UUID tradeId = 체결을_만든다();
+
+        // 세 갈래(선수 불일치·같은 방향·takerSide 불일치)가 한 쿼리의 OR 가지라 대표 하나로 발화를
+        // 확인한다. takerSide를 뒤집으면 구매자·판매자 검사도 함께 울려 무엇이 잡혔는지 흐려진다
+        jdbc.update("UPDATE trades SET player_id = player_id + 1 WHERE trade_id = :id",
+                Map.of("id", tradeId));
+
+        assertThat(대사()).extracting(SettlementReconciliation.Mismatch::check)
+                .containsExactly("체결 양쪽이 같은 선수의 반대 방향");
+    }
+
+    @Test
     void 같은_사용자의_두_주문이_체결되면_검출한다() {
         자기_자신과의_체결을_손으로_넣는다();
 

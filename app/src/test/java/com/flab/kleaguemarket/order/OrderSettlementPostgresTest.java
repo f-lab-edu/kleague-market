@@ -76,16 +76,24 @@ class OrderSettlementPostgresTest {
     }
 
     @Test
-    void 미체결_매도_주문의_예약_수량은_잔량에서_유도된다() {
+    void 매도_주문의_예약_수량은_미체결과_부분_체결_모두_잔량에서_유도된다() {
         long 선수 = 선수를_새로_연다();
         UUID 매도자 = 계좌를_연다(0L);
+        UUID 매수자 = 계좌를_연다(10_000L);
         보유를_넣는다(매도자, 선수, 10);
 
         service.place(new PlaceOrderCommand(매도자, 선수, Side.SELL, 4, 100L));
 
-        TraderAccount.Snapshot snapshot = traderAccount.snapshot(매도자, 선수);
-        assertThat(snapshot.heldQuantity()).isEqualTo(10);
-        assertThat(snapshot.availableQuantity()).isEqualTo(6);
+        TraderAccount.Snapshot 미체결 = traderAccount.snapshot(매도자, 선수);
+        assertThat(미체결.heldQuantity()).isEqualTo(10);
+        assertThat(미체결.availableQuantity()).isEqualTo(6);
+
+        // 1주만 가져가게 해 잔량을 3으로 만든다. 예약이 최초 수량이 아니라 잔량을 따라가야 한다
+        service.place(new PlaceOrderCommand(매수자, 선수, Side.BUY, 1, 100L));
+
+        TraderAccount.Snapshot 부분_체결 = traderAccount.snapshot(매도자, 선수);
+        assertThat(부분_체결.heldQuantity()).isEqualTo(9);
+        assertThat(부분_체결.availableQuantity()).isEqualTo(6);
     }
 
     @Test

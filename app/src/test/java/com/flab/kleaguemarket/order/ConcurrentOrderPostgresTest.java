@@ -143,10 +143,19 @@ class ConcurrentOrderPostgresTest {
         UUID 매수자_1 = 계좌를_연다(10_000L);
         UUID 매수자_2 = 계좌를_연다(10_000L);
 
-        CountDownLatch 함께_출발 = new CountDownLatch(1);
-        Future<Order> 하나 = 실행기.submit(() -> 출발_신호를_기다렸다_주문한다(함께_출발, 매수자_1, 선수));
-        Future<Order> 둘 = 실행기.submit(() -> 출발_신호를_기다렸다_주문한다(함께_출발, 매수자_2, 선수));
-        함께_출발.countDown();
+        CountDownLatch 앞_요청_진입 = new CountDownLatch(1);
+        CountDownLatch 앞_요청_계속 = new CountDownLatch(1);
+        훅.진입_후 = 한_번만(앞_요청_진입, 앞_요청_계속);
+
+        Future<Order> 하나 = 실행기.submit(() ->
+                service.place(new PlaceOrderCommand(매수자_1, 선수, Side.BUY, 1, 100L)));
+        assertThat(앞_요청_진입.await(대기_제한.toSeconds(), TimeUnit.SECONDS)).isTrue();
+        Future<Order> 둘 = 실행기.submit(() ->
+                service.place(new PlaceOrderCommand(매수자_2, 선수, Side.BUY, 1, 100L)));
+        // 앞 요청이 anchor 행을 아직 커밋하지 않아 뒤 요청의 ON CONFLICT가 그 행에서 기다린다.
+        // 겹침을 확인하지 않으면 두 요청이 우연히 차례로 실행돼도 통과해, 경합 자체를 검증하지 못한다
+        누군가_잠금에서_기다릴_때까지();
+        앞_요청_계속.countDown();
 
         Order 주문_1 = 하나.get(대기_제한.toSeconds(), TimeUnit.SECONDS);
         Order 주문_2 = 둘.get(대기_제한.toSeconds(), TimeUnit.SECONDS);
@@ -199,13 +208,6 @@ class ConcurrentOrderPostgresTest {
         } catch (Exception e) {
             return e;
         }
-    }
-
-    private Order 출발_신호를_기다렸다_주문한다(CountDownLatch 출발, UUID userId, long playerId) throws Exception {
-        if (!출발.await(대기_제한.toSeconds(), TimeUnit.SECONDS)) {
-            throw new IllegalStateException("출발 신호가 오지 않았습니다");
-        }
-        return service.place(new PlaceOrderCommand(userId, playerId, Side.BUY, 1, 100L));
     }
 
     @TestConfiguration
